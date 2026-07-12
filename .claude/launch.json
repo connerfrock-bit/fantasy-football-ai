@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ff-cockpit",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8000", "--directory", "C:/Users/conne/Desktop/Fantasy Football AI Project"],
+      "port": 8000
+    }
+  ]
+}

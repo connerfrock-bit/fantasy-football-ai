@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="players-data.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0d0e11; }
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-thumb { background: #2a2e37; border-radius: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    input, select { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
+  </style>
+</helmet>
+<div style="height:100vh; display:flex; flex-direction:column; background:#0d0e11; color:#e9eaec; font-family:'Hanken Grotesk',system-ui,sans-serif; overflow:hidden;">
+
+  <!-- HEADER -->
+  <div style="height:66px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 22px; border-bottom:1px solid #20242c; background:#101216;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div style="width:30px; height:30px; border-radius:7px; background:linear-gradient(135deg,#5aa9f0,#2a6fdb); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#04101f;">L</div>
+      <div style="display:flex; flex-direction:column; line-height:1.15;">
+        <span style="font-weight:700; font-size:14px; letter-spacing:.2px;">Weekly Lineup Optimizer</span>
+        <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace; letter-spacing:.3px;">Standard PPR · floor / proj / ceiling from advanced stats</span>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:18px;">
+      <a href="Draft%20Cockpit.dc.html" style="display:inline-flex; align-items:center; padding:8px 12px; border-radius:8px; border:1px solid #262a33; background:#15171c; color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="background:#1c2027; color:#e9eaec;">Draft</a>
+      <a href="Player%20Database.dc.html" style="display:inline-flex; align-items:center; padding:8px 12px; border-radius:8px; border:1px solid #262a33; background:#15171c; color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="background:#1c2027; color:#e9eaec;">Players</a>
+      <div style="display:flex; align-items:center; gap:9px;">
+        <span style="font-size:11px; color:#7e838d; letter-spacing:.6px;">WEEK</span>
+        <select value="{{ week }}" onChange="{{ onWeek }}" style="background:#15171c; border:1px solid #262a33; color:#e9eaec; font-size:13px; font-weight:600; padding:7px 11px; border-radius:8px; outline:none; cursor:pointer;">
+          <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="6"><option value="{{ w.v }}">{{ w.label }}</option></sc-for>
+        </select>
+      </div>
+      <button onClick="{{ onOptimize }}" style="background:linear-gradient(135deg,#5aa9f0,#2a6fdb); border:none; color:#04101f; font-family:'Hanken Grotesk'; font-weight:800; font-size:13px; letter-spacing:.3px; padding:10px 16px; border-radius:9px; cursor:pointer;" style-hover="filter:brightness(1.08);">⚡ Auto-optimize</button>
+    </div>
+  </div>
+
+  <!-- MY TEAMS BAR -->
+  <div style="flex:none; display:flex; align-items:center; gap:12px; padding:10px 22px; border-bottom:1px solid #20242c; background:#0f1115;">
+    <span style="font-size:11px; font-weight:700; letter-spacing:1.2px; color:#7e838d; flex:none;">MY TEAMS</span>
+    <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0; overflow-x:auto;">
+      <sc-for list="{{ teamTabs }}" as="t" hint-placeholder-count="2">
+        <button onClick="{{ t.onClick }}" style="flex:none; display:flex; align-items:center; gap:7px; padding:7px 13px; border-radius:9px; cursor:pointer; border:1px solid {{ t.border }}; background:{{ t.bg }}; color:{{ t.color }}; font-family:'Hanken Grotesk'; font-size:13px; font-weight:700;">{{ t.name }} <span style="font-size:10px; color:#7e838d; font-family:'JetBrains Mono',monospace;">{{ t.count }}</span></button>
+      </sc-for>
+      <button onClick="{{ onNewTeam }}" style="flex:none; padding:7px 12px; border-radius:9px; cursor:pointer; border:1px dashed #2a2e37; background:transparent; color:#7e838d; font-family:'Hanken Grotesk'; font-size:13px; font-weight:700;" style-hover="color:#e9eaec; border-color:#3a3f49;">+ New team</button>
+    </div>
+    <div style="flex:none; display:flex; align-items:center; gap:8px;">
+      <span style="font-size:11px; color:#5a5f68;">Name</span>
+      <input value="{{ activeName }}" onInput="{{ onRenameTeam }}" style="width:180px; background:#15171c; border:1px solid #262a33; border-radius:8px; padding:7px 11px; color:#e9eaec; font-size:13px; font-weight:600; outline:none;">
+      <sc-if value="{{ canDelete }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ onDeleteTeam }}" style="flex:none; background:#1a1d23; border:1px solid #2a2e37; color:#9aa0a9; font-family:'Hanken Grotesk'; font-size:13px; font-weight:600; padding:7px 12px; border-radius:8px; cursor:pointer;" style-hover="background:#2a1a1d; color:#f0726a; border-color:#5a2a2e;">Delete</button>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- TEAM TOTAL RANGE BAND -->
+  <div style="flex:none; padding:16px 22px; border-bottom:1px solid #20242c; background:#101216; display:flex; align-items:center; gap:26px;">
+    <div style="flex:none;">
+      <div style="font-size:11px; color:#7e838d; letter-spacing:1.2px; font-weight:600;">PROJECTED TEAM TOTAL · WEEK {{ week }}</div>
+      <div style="display:flex; align-items:baseline; gap:8px; margin-top:4px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:34px; font-weight:700; color:#5aa9f0;">{{ teamProj }}</span>
+        <span style="font-size:13px; color:#9aa0a9;">median</span>
+      </div>
+    </div>
+    <div style="flex:1; min-width:0;">
+      <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:12px; margin-bottom:6px;">
+        <span style="color:#f0726a;">floor {{ teamFloor }}</span>
+        <span style="color:#7e838d;">likely range</span>
+        <span style="color:#3ddc91;">ceiling {{ teamCeiling }}</span>
+      </div>
+      <div style="position:relative; height:12px; background:#1a1d23; border-radius:6px; overflow:hidden;">
+        <div style="position:absolute; top:0; bottom:0; left:{{ bandLeft }}; right:{{ bandRight }}; background:linear-gradient(90deg,rgba(240,114,106,.5),rgba(90,169,240,.6),rgba(61,220,145,.5)); border-radius:6px;"></div>
+        <div style="position:absolute; top:-2px; bottom:-2px; left:{{ medianLeft }}; width:2px; background:#e9eaec;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:9px; color:#5a5f68; margin-top:3px;">
+        <span>{{ scaleMin }}</span><span>{{ scaleMax }}</span>
+      </div>
+    </div>
+    <div style="flex:none; text-align:right; padding-left:24px; border-left:1px solid #20242c;">
+      <div style="font-size:11px; color:#7e838d; letter-spacing:.6px;">VS LEAGUE AVG ({{ leagueAvg }})</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:700; color:{{ edgeColor }}; margin-top:3px;">{{ edgeVsAvg }}</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div style="flex:1; min-height:0; display:flex; gap:14px; padding:14px;">
+
+    <!-- LINEUP + BENCH -->
+    <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:12px; overflow-y:auto; padding-right:4px;">
+      <!-- STARTERS -->
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span style="font-size:11px; font-weight:700; letter-spacing:1.4px; color:#9aa0a9;">STARTING LINEUP</span>
+        <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace;">tap a stat bar to read floor → ceiling</span>
+      </div>
+      <sc-for list="{{ lineup }}" as="r" hint-placeholder-count="9">
+        <div style="display:flex; align-items:center; gap:13px; background:{{ r.bg }}; border:1px solid {{ r.border }}; border-radius:11px; padding:11px 14px;">
+          <span style="width:42px; flex:none; text-align:center; font-size:11px; font-weight:800; letter-spacing:.5px; color:{{ r.slotColor }}; font-family:'JetBrains Mono',monospace;">{{ r.slot }}</span>
+          <div style="flex:none; width:172px; min-width:0;">
+            <sc-if value="{{ r.filled }}" hint-placeholder-val="{{ true }}">
+              <div style="font-size:14px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</div>
+              <div style="font-size:10.5px; color:#7e838d; font-family:'JetBrains Mono',monospace;">{{ r.pos }} · {{ r.team }} · {{ r.opp }}</div>
+            </sc-if>
+            <sc-if value="{{ r.empty }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13px; color:#5a5f68; font-style:italic;">Empty — add a {{ r.slot }}</div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ r.filled }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:1; min-width:0;">
+            <div style="position:relative; height:18px;">
+              <div style="position:absolute; top:6px; left:0; right:0; height:6px; background:#1a1d23; border-radius:3px;"></div>
+              <div style="position:absolute; top:6px; left:{{ r.floorPct }}; width:{{ r.rangePct }}; height:6px; background:linear-gradient(90deg,{{ r.barFrom }},{{ r.barTo }}); border-radius:3px;"></div>
+              <div style="position:absolute; top:2px; left:{{ r.projPct }}; width:2px; height:14px; background:#fff; border-radius:1px;"></div>
+            </div>
+            <div style="display:flex; gap:10px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#7e838d; margin-top:3px;">
+              <span style="color:#f0726a;">{{ r.floor }}</span>
+              <span style="color:#e9eaec; font-weight:700;">{{ r.proj }} proj</span>
+              <span style="color:#3ddc91;">{{ r.ceiling }}</span>
+              <span style="margin-left:auto; color:{{ r.tagColor }};">{{ r.tag }} · {{ r.matchupLabel }}</span>
+            </div>
+          </div>
+          <button onClick="{{ r.onBench }}" style="flex:none; background:#1a1d23; border:1px solid #2a2e37; color:#9aa0a9; font-family:'Hanken Grotesk'; font-size:11px; font-weight:600; padding:6px 11px; border-radius:7px; cursor:pointer;" style-hover="background:#2a1a1d; color:#f0726a; border-color:#5a2a2e;">Sit</button>
+          <sc-if value="{{ r.locked }}" hint-placeholder-val="{{ false }}"><span style="flex:none; font-size:9px; font-weight:700; color:#5aa9f0; letter-spacing:.5px;">LOCKED</span></sc-if>
+          <sc-if value="{{ r.removable }}" hint-placeholder-val="{{ true }}"><button onClick="{{ r.onRemove }}" style="flex:none; background:transparent; border:none; color:#5a5f68; font-size:16px; cursor:pointer; padding:0 2px;" style-hover="color:#f0726a;">×</button></sc-if>
+          </sc-if>
+          <sc-if value="{{ r.empty }}" hint-placeholder-val="{{ false }}"><div style="flex:1;"></div></sc-if>
+        </div>
+      </sc-for>
+
+      <!-- BENCH -->
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px;">
+        <span style="font-size:11px; font-weight:700; letter-spacing:1.4px; color:#9aa0a9;">BENCH</span>
+        <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace;">{{ benchCount }} players</span>
+      </div>
+      <sc-for list="{{ bench }}" as="r" hint-placeholder-count="6">
+        <div style="display:flex; align-items:center; gap:13px; background:#121317; border:1px solid #1c1f26; border-radius:11px; padding:9px 14px; opacity:.92;">
+          <span style="width:42px; flex:none; text-align:center; font-size:11px; font-weight:700; color:{{ r.slotColor }}; font-family:'JetBrains Mono',monospace;">{{ r.pos }}</span>
+          <div style="flex:none; width:172px; min-width:0;">
+            <div style="font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</div>
+            <div style="font-size:10.5px; color:#7e838d; font-family:'JetBrains Mono',monospace;">{{ r.team }} · {{ r.opp }}</div>
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="position:relative; height:18px;">
+              <div style="position:absolute; top:6px; left:0; right:0; height:6px; background:#1a1d23; border-radius:3px;"></div>
+              <div style="position:absolute; top:6px; left:{{ r.floorPct }}; width:{{ r.rangePct }}; height:6px; background:linear-gradient(90deg,{{ r.barFrom }},{{ r.barTo }}); border-radius:3px; opacity:.7;"></div>
+              <div style="position:absolute; top:2px; left:{{ r.projPct }}; width:2px; height:14px; background:#bcc0c6; border-radius:1px;"></div>
+            </div>
+            <div style="display:flex; gap:10px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#7e838d; margin-top:3px;">
+              <span style="color:#f0726a;">{{ r.floor }}</span>
+              <span style="color:#cfd2d7; font-weight:700;">{{ r.proj }} proj</span>
+              <span style="color:#3ddc91;">{{ r.ceiling }}</span>
+              <span style="margin-left:auto; color:{{ r.tagColor }};">{{ r.tag }} · {{ r.matchupLabel }}</span>
+            </div>
+          </div>
+          <button onClick="{{ r.onStart }}" style="flex:none; background:rgba(61,220,145,.1); border:1px solid rgba(61,220,145,.3); color:#3ddc91; font-family:'Hanken Grotesk'; font-size:11px; font-weight:700; padding:6px 11px; border-radius:7px; cursor:pointer;" style-hover="filter:brightness(1.15);">Start</button>
+          <button onClick="{{ r.onRemove }}" style="flex:none; background:transparent; border:none; color:#5a5f68; font-size:16px; cursor:pointer; padding:0 2px;" style-hover="color:#f0726a;">×</button>
+        </div>
+      </sc-for>
+
+      <!-- ADD PLAYER -->
+      <div style="background:#121317; border:1px dashed #2a2e37; border-radius:11px; padding:12px 14px; margin-top:4px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:12px; font-weight:700; color:#9aa0a9; flex:none;">+ Load player</span>
+          <input value="{{ addSearch }}" onInput="{{ onAddSearch }}" placeholder="Search the database to add to your bench…" style="flex:1; background:#0f1115; border:1px solid #262a33; border-radius:8px; padding:8px 12px; color:#e9eaec; font-size:13px; outline:none;">
+        </div>
+        <sc-if value="{{ showAddList }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:10px; display:flex; flex-direction:column; gap:4px; max-height:190px; overflow-y:auto;">
+          <sc-for list="{{ addResults }}" as="a" hint-placeholder-count="5">
+            <div onClick="{{ a.onAdd }}" style="display:flex; align-items:center; gap:11px; padding:8px 10px; border-radius:8px; cursor:pointer; background:#15171c;" style-hover="background:#1c2027;">
+              <span style="width:4px; height:24px; border-radius:2px; background:{{ a.posColor }}; flex:none;"></span>
+              <div style="flex:1;"><span style="font-size:13px; font-weight:600;">{{ a.name }}</span> <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace;">{{ a.pos }} · {{ a.team }}</span></div>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a9;">{{ a.proj }} proj</span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noAddResults }}" hint-placeholder-val="{{ false }}"><div style="padding:8px 10px; font-size:12px; color:#5a5f68;">No available players match.</div></sc-if>
+        </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- INSIGHTS -->
+    <div style="width:380px; flex:none; display:flex; flex-direction:column; background:#14161b; border:1px solid #20242c; border-radius:12px; overflow:hidden;">
+      <div style="padding:13px 16px; border-bottom:1px solid #20242c; display:flex; align-items:center; gap:9px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#5aa9f0;"></span>
+        <span style="font-size:11px; font-weight:700; letter-spacing:1.4px; color:#9aa0a9;">START / SIT INTELLIGENCE</span>
+      </div>
+      <div style="flex:1; overflow-y:auto; padding:16px;">
+
+        <sc-if value="{{ hasLeak }}" hint-placeholder-val="{{ false }}">
+        <div style="background:rgba(245,177,76,.08); border:1px solid rgba(245,177,76,.3); border-radius:10px; padding:13px 15px; margin-bottom:14px;">
+          <div style="font-size:11px; font-weight:800; letter-spacing:.6px; color:#f5b14c; margin-bottom:8px;">⚠ LINEUP NOT OPTIMAL — LEAVING {{ leakPts }} PTS ON BENCH</div>
+          <sc-for list="{{ leaks }}" as="l" hint-placeholder-count="1">
+            <div style="font-size:13px; color:#d4d6da; line-height:1.5; margin-bottom:6px;"><b style="color:#3ddc91;">Start {{ l.inName }}</b> over <b style="color:#f0726a;">{{ l.outName }}</b> — {{ l.why }}</div>
+          </sc-for>
+          <button onClick="{{ onOptimize }}" style="margin-top:6px; background:#f5b14c; border:none; color:#1a1205; font-family:'Hanken Grotesk'; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; cursor:pointer;">Apply optimal lineup</button>
+        </div>
+        </sc-if>
+        <sc-if value="{{ isOptimal }}" hint-placeholder-val="{{ true }}">
+        <div style="background:rgba(61,220,145,.07); border:1px solid rgba(61,220,145,.25); border-radius:10px; padding:12px 15px; margin-bottom:14px; display:flex; align-items:center; gap:10px;">
+          <span style="font-size:18px;">✓</span>
+          <span style="font-size:13px; color:#d4d6da; line-height:1.4;">Your lineup is <b style="color:#3ddc91;">mathematically optimal</b> for projected points this week.</span>
+        </div>
+        </sc-if>
+
+        <div style="font-size:11px; font-weight:700; letter-spacing:1.2px; color:#7e838d; margin:4px 0 10px;">CLOSEST CALL</div>
+        <sc-if value="{{ hasCall }}" hint-placeholder-val="{{ true }}">
+        <div style="background:#0f1115; border:1px solid #20242c; border-radius:10px; padding:13px 15px; margin-bottom:16px;">
+          <div style="font-size:14px; font-weight:700; margin-bottom:4px;">{{ call.aName }} <span style="color:#7e838d; font-weight:500; font-size:12px;">vs</span> {{ call.bName }}</div>
+          <div style="font-size:13px; color:#aeb2ba; line-height:1.5;">{{ call.text }}</div>
+          <div style="margin-top:9px; font-size:12px; font-weight:700; color:#3ddc91;">Edge: {{ call.verdict }}</div>
+        </div>
+        </sc-if>
+
+        <div style="font-size:11px; font-weight:700; letter-spacing:1.2px; color:#7e838d; margin:4px 0 10px;">FLAGS THIS WEEK</div>
+        <sc-for list="{{ flags }}" as="f" hint-placeholder-count="3">
+          <div style="display:flex; align-items:flex-start; gap:11px; padding:10px 0; border-bottom:1px solid #191c22;">
+            <span style="width:9px; height:9px; border-radius:50%; background:{{ f.dot }}; margin-top:5px; flex:none;"></span>
+            <div style="flex:1;">
+              <span style="font-size:11px; font-weight:700; letter-spacing:.5px; color:{{ f.dot }};">{{ f.tag }}</span>
+              <div style="font-size:13px; color:#d4d6da; margin-top:2px; line-height:1.45;">{{ f.text }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.SLOTS = [
+      { key:'QB', label:'QB', pos:['QB'] }, { key:'RB1', label:'RB', pos:['RB'] }, { key:'RB2', label:'RB', pos:['RB'] },
+      { key:'WR1', label:'WR', pos:['WR'] }, { key:'WR2', label:'WR', pos:['WR'] }, { key:'TE', label:'TE', pos:['TE'] },
+      { key:'FLEX', label:'FLEX', pos:['RB','WR','TE'] }
+    ];
+    this.DEF = { name:'Eagles D/ST', pos:'DST', team:'PHI', opp:'vs DAL', weekProj:9.4, floor:3.5, ceiling:16, tag:'Steady', matchup:'good' };
+    this.KICK = { name:'Chris Boswell', pos:'K', team:'PIT', opp:'vs CLE', weekProj:8.6, floor:4, ceiling:14, tag:'Steady', matchup:'neutral' };
+    this.seed = ['Josh Allen','Bo Nix','Bijan Robinson','Kenneth Walker III','James Cook','Chuba Hubbard',
+      'Ja’Marr Chase','DK Metcalf','Zay Flowers','Rome Odunze','Jaylen Waddle','Trey McBride','David Njoku','DJ Moore','Alvin Kamara'];
+    const loaded = this.loadState();
+    this.state = { ready: !!window.FF_PLAYERS, week: 1, addSearch: '', teams: loaded.teams, activeId: loaded.activeId };
+  }
+  componentDidMount() {
+    if (!this.state.ready) {
+      this._poll = setInterval(() => { if (window.FF_PLAYERS) { clearInterval(this._poll); this.setState({ ready: true }); } }, 40);
+    }
+  }
+  componentWillUnmount() { clearInterval(this._poll); }
+
+  // ===== multi-team persistence =====
+  loadState() {
+    try {
+      const raw = localStorage.getItem('ffOptimizerTeams_v1');
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && Array.isArray(data.teams) && data.teams.length) {
+          data.teams.forEach(t => { if (!t.locks) t.locks = {}; if (!Array.isArray(t.roster)) t.roster = []; });
+          const activeId = (data.activeId && data.teams.some(t => t.id === data.activeId)) ? data.activeId : data.teams[0].id;
+          return { teams: data.teams, activeId };
+        }
+      }
+    } catch (e) {}
+    const team = { id: 't' + Date.now(), name: 'My League', roster: this.seed.slice(), locks: {} };
+    return { teams: [team], activeId: team.id };
+  }
+  persist(teams, activeId) {
+    try { localStorage.setItem('ffOptimizerTeams_v1', JSON.stringify({ teams, activeId })); } catch (e) {}
+  }
+  active() { return this.state.teams.find(t => t.id === this.state.activeId) || this.state.teams[0]; }
+  mutateActive(updater) {
+    this.setState(s => {
+      const teams = s.teams.map(t => t.id === s.activeId ? Object.assign({}, t, updater(t)) : t);
+      this.persist(teams, s.activeId);
+      return { teams };
+    });
+  }
+  newTeam() {
+    this.setState(s => {
+      const id = 't' + Date.now();
+      const team = { id, name: 'New Team ' + (s.teams.length + 1), roster: [], locks: {} };
+      const teams = s.teams.concat([team]);
+      this.persist(teams, id);
+      return { teams, activeId: id, addSearch: '' };
+    });
+  }
+  switchTeam(id) { this.setState(s => { this.persist(s.teams, id); return { activeId: id, addSearch: '' }; }); }
+  renameTeam(name) { this.mutateActive(() => ({ name })); }
+  deleteTeam() {
+    this.setState(s => {
+      if (s.teams.length <= 1) return null;
+      const teams = s.teams.filter(t => t.id !== s.activeId);
+      const activeId = teams[0].id;
+      this.persist(teams, activeId);
+      return { teams, activeId, addSearch: '' };
+    });
+  }
+
+  hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+  posColor(pos) { return { QB:'#f0726a', RB:'#4fd1ab', WR:'#5aa9f0', TE:'#c98bf0', DST:'#9aa0a9', K:'#d8b46a' }[pos] || '#8b8f98'; }
+  matchupLabel(m) { return { great:'great matchup', good:'good matchup', neutral:'neutral matchup', tough:'tough matchup', avoid:'avoid — elite D' }[m] || ''; }
+  matchupColor(m) { return { great:'#3ddc91', good:'#7fd6a8', neutral:'#9aa0a9', tough:'#f5b14c', avoid:'#f0726a' }[m] || '#9aa0a9'; }
+  tagColor(t) { return { 'Safe floor':'#3ddc91', 'Boom / bust':'#f5b14c', 'Smash spot':'#3ddc91', 'Tough matchup':'#f0726a', 'Steady':'#9aa0a9' }[t] || '#9aa0a9'; }
+
+  // weekly numbers with a deterministic per-week wobble so changing weeks feels live
+  weekly(p, week) {
+    const w = ((this.hashStr(p.name + 'wk' + week) % 11) - 5) / 100; // ±5%
+    const proj = Math.round(p.weekProj * (1 + w) * 10) / 10;
+    const floor = Math.round(p.floor * (1 + w * 0.6) * 10) / 10;
+    const ceiling = Math.round(p.ceiling * (1 + w * 1.2) * 10) / 10;
+    return { proj, floor, ceiling };
+  }
+  enrich(p, week) {
+    const wk = this.weekly(p, week);
+    return Object.assign({}, p, wk);
+  }
+
+  rosterPlayers() {
+    const all = window.FF_PLAYERS || [];
+    return this.active().roster.map(n => all.find(p => p.name === n)).filter(Boolean).map(p => this.enrich(p, this.state.week));
+  }
+
+  // optimal slot assignment maximizing proj
+  optimalLineup(players) {
+    const by = { QB:[], RB:[], WR:[], TE:[] };
+    players.forEach(p => { if (by[p.pos]) by[p.pos].push(p); });
+    Object.keys(by).forEach(k => by[k].sort((a,b) => b.proj - a.proj));
+    const used = new Set();
+    const take = (pos, n) => { const out = by[pos].filter(p => !used.has(p.name)).slice(0, n); out.forEach(p => used.add(p.name)); return out; };
+    const qb = take('QB', 1), rb = take('RB', 2), wr = take('WR', 2), te = take('TE', 1);
+    const flexPool = players.filter(p => !used.has(p.name) && ['RB','WR','TE'].indexOf(p.pos) !== -1).sort((a,b) => b.proj - a.proj);
+    const flex = flexPool.length ? [flexPool[0]] : [];
+    if (flex.length) used.add(flex[0].name);
+    return { QB:qb[0]||null, RB1:rb[0]||null, RB2:rb[1]||null, WR1:wr[0]||null, WR2:wr[1]||null, TE:te[0]||null, FLEX:flex[0]||null, set:used };
+  }
+
+  // current lineup respecting locks (force-start / force-bench)
+  currentLineup(players) {
+    const locks = this.active().locks;
+    const forceStart = players.filter(p => locks[p.name] === 'start');
+    const pool = players.filter(p => locks[p.name] !== 'bench');
+    const slots = { QB:null, RB1:null, RB2:null, WR1:null, WR2:null, TE:null, FLEX:null };
+    const placed = new Set();
+    const placeInto = (p) => {
+      const tryKeys = p.pos === 'QB' ? ['QB'] : p.pos === 'RB' ? ['RB1','RB2','FLEX'] : p.pos === 'WR' ? ['WR1','WR2','FLEX'] : ['TE','FLEX'];
+      for (const k of tryKeys) if (!slots[k]) { slots[k] = p; placed.add(p.name); return true; }
+      return false;
+    };
+    forceStart.slice().sort((a,b) => b.proj - a.proj).forEach(placeInto);
+    pool.filter(p => !placed.has(p.name)).sort((a,b) => b.proj - a.proj).forEach(p => { if (placed.size < 7) placeInto(p); });
+    return slots;
+  }
+
+  toggleBench(name) { this.mutateActive(t => { const l = Object.assign({}, t.locks); l[name] = l[name] === 'bench' ? undefined : 'bench'; return { locks: l }; }); }
+  toggleStart(name) { this.mutateActive(t => { const l = Object.assign({}, t.locks); l[name] = l[name] === 'start' ? undefined : 'start'; return { locks: l }; }); }
+  addPlayer(name) { this.mutateActive(t => ({ roster: t.roster.indexOf(name) === -1 ? t.roster.concat(name) : t.roster })); this.setState({ addSearch: '' }); }
+  removePlayer(name) { this.mutateActive(t => { const l = Object.assign({}, t.locks); delete l[name]; return { roster: t.roster.filter(n => n !== name), locks: l }; }); }
+  optimize() { this.mutateActive(() => ({ locks: {} })); }
+
+  renderVals() {
+    if (!this.state.ready) {
+      return { week: this.state.week, weeks: [], lineup: [], bench: [], flags: [], leaks: [],
+        teamProj: '…', teamFloor: '…', teamCeiling: '…', benchCount: 0,
+        bandLeft:'0%', bandRight:'0%', medianLeft:'0%', scaleMin:'', scaleMax:'', leagueAvg:'', edgeVsAvg:'', edgeColor:'#9aa0a9',
+        isOptimal:false, hasLeak:false, hasCall:false, addSearch:'', showAddList:false, addResults:[], noAddResults:false,
+        teamTabs:[], activeName:'', canDelete:false, onNewTeam:()=>{}, onRenameTeam:()=>{}, onDeleteTeam:()=>{},
+        onWeek:(e)=>this.setState({week:+e.target.value}), onOptimize:()=>this.optimize(), onAddSearch:()=>{} };
+    }
+    const week = this.state.week;
+    const players = this.rosterPlayers();
+    const cur = this.currentLineup(players);
+    const opt = this.optimalLineup(players);
+
+    // global scale for range bars
+    const allCeil = players.map(p => p.ceiling).concat([this.DEF.ceiling, this.KICK.ceiling]);
+    const globalMax = Math.max.apply(null, allCeil.length ? allCeil : [20]) * 1.04;
+    const pct = (v) => Math.max(0, Math.min(100, v / globalMax * 100)).toFixed(1) + '%';
+
+    const rowFor = (p, slotLabel) => {
+      const barFrom = this.matchupColor(p.matchup === 'avoid' || p.matchup === 'tough' ? p.matchup : 'good');
+      return {
+        slot: slotLabel || p.pos, pos: p.pos, name: p.name, team: p.team, opp: p.opp || '',
+        filled: true, empty: false,
+        slotColor: this.posColor(p.pos),
+        floor: p.floor, proj: p.proj, ceiling: p.ceiling,
+        floorPct: pct(p.floor),
+        rangePct: Math.max(0, (p.ceiling - p.floor) / globalMax * 100).toFixed(1) + '%',
+        projPct: pct(p.proj),
+        barFrom: '#3a4a5e', barTo: this.matchupColor(p.matchup),
+        tag: p.tag, tagColor: this.tagColor(p.tag),
+        matchupLabel: this.matchupLabel(p.matchup),
+        locked: this.active().locks[p.name] === 'start',
+        bg: '#16181d', border: this.active().locks[p.name] === 'start' ? 'rgba(90,169,240,.4)' : '#20242c',
+        removable: true,
+        onBench: () => this.toggleBench(p.name),
+        onRemove: () => this.removePlayer(p.name)
+      };
+    };
+
+    // build starting lineup rows (7 skill + DST + K)
+    const lineup = this.SLOTS.map(s => {
+      const p = cur[s.key];
+      if (!p) return { slot: s.label, filled:false, empty:true, slotColor:this.posColor(s.pos[0]), name:'', pos:'', team:'', opp:'' };
+      return rowFor(p, s.label);
+    });
+    const defRow = rowFor(this.enrich(this.DEF, week), 'D/ST'); defRow.onBench = () => {}; defRow.removable = false;
+    const kRow = rowFor(this.enrich(this.KICK, week), 'K'); kRow.onBench = () => {}; kRow.removable = false;
+    lineup.push(defRow, kRow);
+
+    // bench = roster players not currently starting
+    const startingNames = new Set(this.SLOTS.map(s => cur[s.key]).filter(Boolean).map(p => p.name));
+    const bench = players.filter(p => !startingNames.has(p.name)).sort((a,b) => b.proj - a.proj).map(p => {
+      const r = rowFor(p, null);
+      r.onStart = () => this.toggleStart(p.name);
+      r.onRemove = () => this.removePlayer(p.name);
+      return r;
+    });
+
+    // team totals (skill starters + DEF + K)
+    const skillStarters = this.SLOTS.map(s => cur[s.key]).filter(Boolean);
+    const def = this.enrich(this.DEF, week), kick = this.enrich(this.KICK, week);
+    const sum = (f) => skillStarters.reduce((a,p) => a + p[f], 0) + def[f] + kick[f];
+    const teamFloor = Math.round(sum('floor'));
+    const teamProj = Math.round(sum('proj'));
+    const teamCeiling = Math.round(sum('ceiling'));
+
+    // scale band for the team range bar
+    const scaleMin = Math.floor((teamFloor - 12) / 5) * 5;
+    const scaleMax = Math.ceil((teamCeiling + 12) / 5) * 5;
+    const span = Math.max(1, scaleMax - scaleMin);
+    const toPct = (v) => ((v - scaleMin) / span * 100);
+    const bandLeft = toPct(teamFloor).toFixed(1) + '%';
+    const bandRight = (100 - toPct(teamCeiling)).toFixed(1) + '%';
+    const medianLeft = toPct(teamProj).toFixed(1) + '%';
+    const leagueAvg = 118;
+    const diff = teamProj - leagueAvg;
+    const edgeVsAvg = (diff >= 0 ? '+' : '') + diff + ' pts';
+    const edgeColor = diff >= 0 ? '#3ddc91' : '#f0726a';
+
+    // leak detection (locks costing points)
+    const optTotal = ['QB','RB1','RB2','WR1','WR2','TE','FLEX'].reduce((a,k) => a + (opt[k] ? opt[k].proj : 0), 0);
+    const curTotal = skillStarters.reduce((a,p) => a + p.proj, 0);
+    const optSet = opt.set;
+    const curSet = startingNames;
+    const shouldStart = ['QB','RB1','RB2','WR1','WR2','TE','FLEX'].map(k => opt[k]).filter(Boolean).filter(p => !curSet.has(p.name));
+    const shouldSit = skillStarters.filter(p => !optSet.has(p.name));
+    const leaks = shouldStart.map((inP, i) => {
+      const outP = shouldSit[i];
+      return {
+        inName: inP.name, outName: outP ? outP.name : 'current starter',
+        why: 'projects ' + inP.proj + ' vs ' + (outP ? outP.proj : '?') + ' (' + this.matchupLabel(inP.matchup) + ', ' + inP.tag.toLowerCase() + ')'
+      };
+    });
+    const leakPts = Math.max(0, Math.round((optTotal - curTotal) * 10) / 10);
+    const hasLeak = leaks.length > 0 && leakPts > 0;
+    const isOptimal = !hasLeak;
+
+    // closest call: a starter vs the top bench player eligible for the same slot
+    let call = null, hasCall = false;
+    const benchSkill = players.filter(p => !startingNames.has(p.name) && this.active().locks[p.name] !== 'bench');
+    let best = null;
+    benchSkill.forEach(b => {
+      skillStarters.forEach(s => {
+        // eligible for the same slot: same position, or the bench player could take the FLEX this starter holds
+        const sameSlot = s.pos === b.pos || (['RB','WR','TE'].indexOf(s.pos) !== -1 && ['RB','WR','TE'].indexOf(b.pos) !== -1 && cur.FLEX && cur.FLEX.name === s.name);
+        if (sameSlot) {
+          const d = Math.abs(s.proj - b.proj);
+          if (!best || d < best.d) best = { d, starter: s, bench: b };
+        }
+      });
+    });
+    if (best && best.d <= 3.5) {
+      const a = best.starter, b = best.bench;
+      hasCall = true;
+      const safer = a.floor >= b.floor ? a : b;
+      const higher = a.ceiling >= b.ceiling ? a : b;
+      call = {
+        aName: a.name, bName: b.name,
+        text: a.name + ' projects ' + a.proj + ' (' + a.floor + '–' + a.ceiling + ', ' + this.matchupLabel(a.matchup) + ') vs ' + b.name + ' at ' + b.proj + ' (' + b.floor + '–' + b.ceiling + ', ' + this.matchupLabel(b.matchup) + '). ' + safer.name + ' has the safer floor; ' + higher.name + ' the higher ceiling.',
+        verdict: (a.proj >= b.proj ? a.name : b.name) + ' by ' + (Math.round(Math.abs(a.proj - b.proj) * 10) / 10) + ' proj pts'
+      };
+    }
+
+    // flags
+    const flags = [];
+    skillStarters.forEach(p => {
+      if (p.matchup === 'great') flags.push({ tag:'SMASH SPOT', dot:'#3ddc91', text: p.name + ' draws a top-5 matchup (' + p.opp + '). Lean into the ceiling — ' + p.ceiling + ' is live.' });
+    });
+    skillStarters.forEach(p => {
+      if (p.matchup === 'avoid') flags.push({ tag:'TOUGH DRAW', dot:'#f0726a', text: p.name + ' faces an elite defense (' + p.opp + '). Floor dips to ' + p.floor + ' — fine if you lack alternatives, but capped.' });
+    });
+    skillStarters.forEach(p => {
+      if (p.tag === 'Boom / bust') flags.push({ tag:'VOLATILE', dot:'#f5b14c', text: p.name + ' is boom/bust this week (' + p.floor + '–' + p.ceiling + '). Great if you need upside, risky if you’re favored.' });
+    });
+    const flagsTrim = flags.slice(0, 5);
+    if (flagsTrim.length === 0) flagsTrim.push({ tag:'CLEAN SLATE', dot:'#3ddc91', text:'No major matchup or volatility flags among your starters this week.' });
+
+    // add player search
+    const q = (this.state.addSearch || '').trim().toLowerCase();
+    const rosterSet = new Set(this.active().roster);
+    const addResults = q ? (window.FF_PLAYERS || []).filter(p => !rosterSet.has(p.name) && p.name.toLowerCase().indexOf(q) !== -1).slice(0, 8).map(p => ({
+      name: p.name, pos: p.pos, team: p.team, proj: this.enrich(p, week).proj, posColor: this.posColor(p.pos), onAdd: () => this.addPlayer(p.name)
+    })) : [];
+
+    const weeks = [];
+    for (let i = 1; i <= 18; i++) weeks.push({ v: i, label: 'Week ' + i });
+
+    const teamTabs = this.state.teams.map(t => ({
+      id: t.id, name: t.name, count: t.roster.length, onClick: () => this.switchTeam(t.id),
+      bg: t.id === this.state.activeId ? 'rgba(90,169,240,.16)' : '#15171c',
+      border: t.id === this.state.activeId ? 'rgba(90,169,240,.5)' : '#262a33',
+      color: t.id === this.state.activeId ? '#cfe3fb' : '#9aa0a9'
+    }));
+
+    return {
+      week, weeks,
+      teamTabs, activeName: this.active().name, canDelete: this.state.teams.length > 1,
+      onNewTeam: () => this.newTeam(), onRenameTeam: (e) => this.renameTeam(e.target.value), onDeleteTeam: () => this.deleteTeam(),
+      onWeek: (e) => this.setState({ week: +e.target.value }),
+      onOptimize: () => this.optimize(),
+      lineup, bench, benchCount: bench.length,
+      teamProj, teamFloor, teamCeiling,
+      bandLeft, bandRight, medianLeft, scaleMin, scaleMax,
+      leagueAvg, edgeVsAvg, edgeColor,
+      hasLeak, leaks, leakPts, isOptimal,
+      hasCall, call,
+      flags: flagsTrim,
+      addSearch: this.state.addSearch,
+      onAddSearch: (e) => this.setState({ addSearch: e.target.value }),
+      showAddList: q.length > 0,
+      addResults, noAddResults: q.length > 0 && addResults.length === 0
+    };
+  }
+}
+</script>
+</body>
+</html>

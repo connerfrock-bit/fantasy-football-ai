@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<script src="../pipeline/data/ff_players.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #0d0e11; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #2a2e37; border-radius: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    input, select { font-family: 'Hanken Grotesk', system-ui, sans-serif; }
+  </style>
+</helmet>
+<div style="height:100vh; display:flex; flex-direction:column; background:#0d0e11; color:#e9eaec; font-family:'Hanken Grotesk',system-ui,sans-serif; overflow:hidden;">
+
+  <!-- HEADER -->
+  <div style="flex:none; padding:16px 22px 0; border-bottom:1px solid #20242c; background:#101216;">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div style="width:30px; height:30px; border-radius:7px; background:linear-gradient(135deg,#c98bf0,#7a3fd0); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#15041f;">DB</div>
+        <div style="display:flex; flex-direction:column; line-height:1.15;">
+          <span style="font-weight:700; font-size:14px; letter-spacing:.2px;">Player Database</span>
+          <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace; letter-spacing:.3px;">2026 projections, ADP &amp; stats · {{ totalCount }} players · {{ shownCount }} shown</span>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <a href="Draft%20Cockpit.dc.html" style="display:inline-flex; align-items:center; padding:9px 12px; border-radius:8px; border:1px solid #262a33; background:#15171c; color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="background:#1c2027; color:#e9eaec;">Draft</a>
+        <a href="Lineup%20Optimizer.dc.html" style="display:inline-flex; align-items:center; padding:9px 12px; border-radius:8px; border:1px solid #262a33; background:#15171c; color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="background:#1c2027; color:#e9eaec;">Lineup</a>
+        <input value="{{ search }}" onInput="{{ onSearch }}" placeholder="Search players…" style="width:220px; background:#15171c; border:1px solid #262a33; border-radius:8px; padding:9px 13px; color:#e9eaec; font-size:13px; outline:none;">
+        <select value="{{ teamFilter }}" onChange="{{ onTeam }}" style="background:#15171c; border:1px solid #262a33; color:#e9eaec; font-size:13px; font-weight:600; padding:9px 11px; border-radius:8px; outline:none; cursor:pointer;">
+          <option value="ALL">All teams</option>
+          <sc-for list="{{ teamOptions }}" as="t" hint-placeholder-count="8"><option value="{{ t }}">{{ t }}</option></sc-for>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex; align-items:flex-end; justify-content:space-between;">
+      <div style="display:flex; gap:7px;">
+        <sc-for list="{{ posTabs }}" as="t" hint-placeholder-count="5">
+          <button onClick="{{ t.onClick }}" style="font-family:'Hanken Grotesk'; font-size:12.5px; font-weight:700; letter-spacing:.4px; padding:9px 18px; border:none; border-bottom:2px solid {{ t.border }}; background:transparent; color:{{ t.color }}; cursor:pointer;">{{ t.label }}</button>
+        </sc-for>
+      </div>
+      <div style="display:flex; align-items:center; gap:5px; padding-bottom:6px;">
+        <span style="font-size:10px; font-weight:700; letter-spacing:.8px; color:#5a5f68; margin-right:3px;">SCORING</span>
+        <sc-for list="{{ scoringTabs }}" as="s" hint-placeholder-count="3">
+          <button onClick="{{ s.onClick }}" style="font-family:'Hanken Grotesk'; font-size:11.5px; font-weight:700; padding:6px 12px; border-radius:7px; cursor:pointer; background:{{ s.bg }}; color:{{ s.color }}; border:1px solid {{ s.border }};">{{ s.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div style="flex:1; min-height:0; overflow:auto;">
+    <div style="width:max-content; min-width:100%; font-size:13px;">
+      <div style="display:flex; position:sticky; top:0; z-index:2; background:#15171c; border-bottom:1px solid #262a33;">
+        <sc-for list="{{ columns }}" as="c" hint-placeholder-count="12">
+          <div onClick="{{ c.onSort }}" style="width:{{ c.width }}px; flex:none; padding:11px 14px; text-align:{{ c.align }}; font-size:10.5px; font-weight:700; letter-spacing:.7px; color:{{ c.color }}; cursor:pointer; white-space:nowrap; user-select:none;">{{ c.label }}{{ c.arrow }}</div>
+        </sc-for>
+      </div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="24">
+        <div style="display:flex; background:{{ r.bg }}; border-bottom:1px solid #181b21;" style-hover="background:#1a1d24;">
+          <sc-for list="{{ r.cells }}" as="cell" hint-placeholder-count="12">
+            <div style="width:{{ cell.width }}px; flex:none; padding:9px 14px; text-align:{{ cell.align }}; font-size:{{ cell.size }}; font-weight:{{ cell.weight }}; font-family:{{ cell.font }}; color:{{ cell.color }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ cell.text }}</div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:60px; text-align:center; color:#5a5f68; font-size:14px;">No players match your filters.</div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ready: !!window.FF_DRAFT_DATA, pos: 'ALL', team: 'ALL', search: '', scoring: 'ppr', sortKey: 'ovrRank', sortDir: 'asc' };
+  }
+  componentDidMount() {
+    if (!this.state.ready) this._poll = setInterval(() => { if (window.FF_DRAFT_DATA) { clearInterval(this._poll); this.setState({ ready: true }); } }, 40);
+  }
+  componentWillUnmount() { clearInterval(this._poll); }
+
+  posColor(pos) { return { QB:'#f0726a', RB:'#4fd1ab', WR:'#5aa9f0', TE:'#c98bf0' }[pos] || '#8b8f98'; }
+  colWidth(key) { return { ovrRank:48, name:190, pos:54, team:58, bye:46, tier:54, pass_yd:80, rush_yd:80, rec_yd:80 }[key] || 70; }
+
+  // ===== DATA ADAPTER: real pipeline data (window.FF_DRAFT_DATA) -> flat sortable rows =====
+  // For the chosen scoring format we read proj[fmt], adp[fmt] (consensus + per-source) and the
+  // projected stat components. Source-agnostic: adding/removing a pipeline source changes nothing here.
+  buildPlayers(scoring) {
+    const data = window.FF_DRAFT_DATA;
+    if (!data || !Array.isArray(data.players)) return [];
+    const fmt = scoring;                              // 'ppr' | 'half' | 'std'
+    const POS = { DEF: 'DST' };
+    const SKILL = { QB:1, RB:1, WR:1, TE:1 };         // DB focuses on the rich-stat positions
+    let list = data.players.map(r => {
+      const pos = POS[r.pos] || r.pos;
+      const pr = (r.proj && r.proj[fmt] != null) ? r.proj[fmt] : (r.proj ? r.proj.ppr : null);
+      const a = (r.adp && r.adp[fmt]) || {};
+      const s = r.stats || {};
+      const META = { consensus: 1, sources: 1, espn: 1 };   // non-source keys + the book we compare against
+      const others = Object.keys(a).filter(k => !META[k] && a[k] != null).map(k => a[k]);
+      const mkt = others.length ? others.reduce((x,y) => x + y, 0) / others.length : null;
+      const edge = (a.espn != null && mkt != null) ? Math.round(a.espn - mkt) : null;
+      return {
+        name: r.name, pos, team: r.team, bye: r.bye,
+        proj: pr != null ? Math.round(pr * 10) / 10 : null,
+        adp: a.consensus != null ? a.consensus : null, edge,
+        tier: (r.tier && r.tier[fmt] != null) ? r.tier[fmt] : null,
+        gp: s.gp, tgt: s.tgt, rec: s.rec, rec_yd: s.rec_yd, rec_td: s.rec_td,
+        rush_att: s.rush_att, rush_yd: s.rush_yd, rush_td: s.rush_td,
+        pass_yd: s.pass_yd, pass_td: s.pass_td, pass_int: s.pass_int
+      };
+    }).filter(p => SKILL[p.pos]);
+
+    // VORP at a standard 12-team baseline (informational; the draft cockpit uses your league size)
+    const teams = 12;
+    const replIdx = { RB: Math.round(teams*2.3), WR: Math.round(teams*2.6), QB: Math.round(teams*1.1), TE: Math.round(teams*1.1) };
+    const baseline = {};
+    ['QB','RB','WR','TE'].forEach(pos => {
+      const grp = list.filter(p => p.pos === pos && p.proj != null).sort((a,b) => b.proj - a.proj);
+      const idx = Math.max(0, Math.min((replIdx[pos]||1) - 1, grp.length - 1));
+      baseline[pos] = grp.length ? grp[idx].proj : 0;
+    });
+    list.forEach(p => { p.vorp = (p.proj != null) ? Math.max(0, Math.round(p.proj - (baseline[p.pos]||0))) : null; });
+
+    // ranks by the selected format's projection
+    list.slice().sort((a,b) => (b.proj||-1) - (a.proj||-1)).forEach((p,i) => { p.ovrRank = i + 1; });
+    ['QB','RB','WR','TE'].forEach(pos => {
+      list.filter(p => p.pos === pos).sort((a,b) => (b.proj||-1) - (a.proj||-1)).forEach((p,i) => { p.posRank = i + 1; });
+    });
+    return list;
+  }
+
+  columnDefs(pos) {
+    const C = (key, label, align, get, fmt) => ({ key, label, align: align || 'right', get, fmt: fmt || (v => v) });
+    const common = [
+      C('ovrRank', '#', 'left', p => p.ovrRank),
+      C('name', 'PLAYER', 'left', p => p.name),
+      C('pos', 'POS', 'left', p => p.pos),
+      C('team', 'TEAM', 'left', p => p.team),
+      C('bye', 'BYE', 'right', p => p.bye),
+      C('proj', 'PROJ', 'right', p => p.proj),
+      C('vorp', 'VORP', 'right', p => p.vorp),
+      C('posRank', 'POS RK', 'right', p => p.posRank),
+      C('tier', 'TIER', 'right', p => p.tier),
+      C('adp', 'ADP', 'right', p => p.adp),
+      C('edge', 'vs ESPN', 'right', p => p.edge)
+    ];
+    if (pos === 'QB') return common.concat([
+      C('gp', 'GP', 'right', p => p.gp),
+      C('pass_yd', 'PASS YD', 'right', p => p.pass_yd),
+      C('pass_td', 'PASS TD', 'right', p => p.pass_td),
+      C('pass_int', 'INT', 'right', p => p.pass_int),
+      C('rush_att', 'CAR', 'right', p => p.rush_att),
+      C('rush_yd', 'RUSH YD', 'right', p => p.rush_yd),
+      C('rush_td', 'RUSH TD', 'right', p => p.rush_td)
+    ]);
+    if (pos === 'RB') return common.concat([
+      C('gp', 'GP', 'right', p => p.gp),
+      C('rush_att', 'CAR', 'right', p => p.rush_att),
+      C('rush_yd', 'RUSH YD', 'right', p => p.rush_yd),
+      C('rush_td', 'RUSH TD', 'right', p => p.rush_td),
+      C('tgt', 'TGT', 'right', p => p.tgt),
+      C('rec', 'REC', 'right', p => p.rec),
+      C('rec_yd', 'REC YD', 'right', p => p.rec_yd),
+      C('rec_td', 'REC TD', 'right', p => p.rec_td)
+    ]);
+    if (pos === 'WR' || pos === 'TE') return common.concat([
+      C('gp', 'GP', 'right', p => p.gp),
+      C('tgt', 'TGT', 'right', p => p.tgt),
+      C('rec', 'REC', 'right', p => p.rec),
+      C('rec_yd', 'REC YD', 'right', p => p.rec_yd),
+      C('rec_td', 'REC TD', 'right', p => p.rec_td),
+      C('rush_yd', 'RUSH YD', 'right', p => p.rush_yd)
+    ]);
+    // ALL — shared projected-stat components
+    return common.concat([
+      C('gp', 'GP', 'right', p => p.gp),
+      C('pass_yd', 'PASS YD', 'right', p => p.pass_yd),
+      C('rush_yd', 'RUSH YD', 'right', p => p.rush_yd),
+      C('tgt', 'TGT', 'right', p => p.tgt),
+      C('rec', 'REC', 'right', p => p.rec),
+      C('rec_yd', 'REC YD', 'right', p => p.rec_yd)
+    ]);
+  }
+
+  setSort(key) {
+    this.setState(s => {
+      if (s.sortKey === key) return { sortDir: s.sortDir === 'asc' ? 'desc' : 'asc' };
+      // default direction: rank/name/team/pos/bye/adp ascending, stats descending
+      const asc = ['ovrRank','posRank','name','team','pos','bye','adp'].indexOf(key) !== -1;
+      return { sortKey: key, sortDir: asc ? 'asc' : 'desc' };
+    });
+  }
+
+  renderVals() {
+    if (!this.state.ready) {
+      return { ready:false, totalCount:'…', shownCount:0, columns:[], rows:[], empty:false, posTabs:[], scoringTabs:[], teamOptions:[],
+        search:'', teamFilter:'ALL', onSearch:()=>{}, onTeam:()=>{} };
+    }
+    const { pos, team, search, scoring, sortKey, sortDir } = this.state;
+    const all = this.buildPlayers(scoring);
+    const defs = this.columnDefs(pos);
+
+    let list = all.slice();
+    if (pos !== 'ALL') list = list.filter(p => p.pos === pos);
+    if (team !== 'ALL') list = list.filter(p => p.team === team);
+    const q = (search || '').trim().toLowerCase();
+    if (q) list = list.filter(p => (p.name||'').toLowerCase().indexOf(q) !== -1 || (p.team||'').toLowerCase().indexOf(q) !== -1);
+
+    const def = defs.find(d => d.key === sortKey) || defs[0];
+    list.sort((a, b) => {
+      let av = def.get(a), bv = def.get(b);
+      if (av == null) av = sortDir === 'asc' ? Infinity : -Infinity;
+      if (bv == null) bv = sortDir === 'asc' ? Infinity : -Infinity;
+      if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+
+    const columns = defs.map(d => ({
+      label: d.label, align: d.align, width: this.colWidth(d.key),
+      color: sortKey === d.key ? '#e9eaec' : '#7e838d',
+      arrow: sortKey === d.key ? (sortDir === 'asc' ? '  ↑' : '  ↓') : '',
+      onSort: () => this.setSort(d.key)
+    }));
+
+    // plain-value cells (no React.createElement) so they render on file:// like the cockpit does
+    const cellData = (d, p) => {
+      const raw = d.get(p);
+      let text = (raw == null || raw === '') ? '—' : String(d.fmt(raw));
+      let color = (raw == null) ? '#3a3f49' : '#cfd2d7', weight = '500', size = '12.5px', font = "'JetBrains Mono', monospace";
+      if (d.key === 'name') { text = p.name; color = '#e9eaec'; weight = '700'; size = '13.5px'; font = "'Hanken Grotesk', system-ui, sans-serif"; }
+      else if (d.key === 'team') { font = "'Hanken Grotesk', system-ui, sans-serif"; }
+      else if (d.key === 'pos') { color = this.posColor(p.pos); weight = '800'; }
+      else if (d.key === 'ovrRank') { color = '#7e838d'; size = '12px'; }
+      else if (d.key === 'proj') { color = (raw == null) ? '#3a3f49' : '#5aa9f0'; weight = '700'; size = '13px'; }
+      else if (d.key === 'vorp') { text = (raw == null) ? '—' : '+' + raw; color = (raw == null) ? '#3a3f49' : '#3ddc91'; weight = '600'; }
+      else if (d.key === 'edge') { text = (raw == null) ? '—' : (raw > 0 ? '+' + raw : String(raw)); color = (raw == null) ? '#3a3f49' : (raw >= 8 ? '#3ddc91' : (raw <= -8 ? '#f0726a' : '#9aa0a9')); }
+      return { text, align: d.align, color, weight, size, font, width: this.colWidth(d.key) };
+    };
+
+    const rows = list.map((p, i) => ({
+      bg: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.012)',
+      cells: defs.map(d => cellData(d, p))
+    }));
+
+    const posTabs = ['ALL','QB','RB','WR','TE'].map(t => ({
+      label: t, onClick: () => this.setState({ pos: t }),
+      color: pos === t ? '#e9eaec' : '#7e838d',
+      border: pos === t ? (t === 'ALL' ? '#c98bf0' : this.posColor(t)) : 'transparent'
+    }));
+
+    const scoringTabs = [['ppr','PPR'],['half','Half'],['std','Std']].map(o => ({
+      label: o[1], onClick: () => this.setState({ scoring: o[0] }),
+      bg: scoring === o[0] ? 'rgba(201,139,240,.16)' : '#15171c',
+      color: scoring === o[0] ? '#e7d3fb' : '#9aa0a9',
+      border: scoring === o[0] ? '#c98bf0' : '#262a33'
+    }));
+
+    const teamOptions = Array.from(new Set(all.map(p => p.team).filter(Boolean))).sort();
+
+    return {
+      ready: true,
+      totalCount: all.length, shownCount: list.length,
+      columns, rows, empty: list.length === 0,
+      posTabs, scoringTabs, teamOptions,
+      search: this.state.search, teamFilter: this.state.team,
+      onSearch: (e) => this.setState({ search: e.target.value }),
+      onTeam: (e) => this.setState({ team: e.target.value })
+    };
+  }
+}
+</script>
+</body>
+</html>

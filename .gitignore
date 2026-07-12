@@ -1,0 +1,9 @@
+# Secrets - never commit or share these
+pipeline/secrets/
+
+# Cached raw API pulls (large; regenerated on each run)
+pipeline/data/raw/
+
+# Python
+__pycache__/
+*.pyc
