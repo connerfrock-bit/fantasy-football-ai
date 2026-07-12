@@ -746,7 +746,7 @@ class Component extends DCLogic {
       const others = Object.keys(sources).filter(k => k !== 'espn').map(k => sources[k]);
       const mkt = others.length ? others.reduce((x, y) => x + y, 0) / others.length : null;
       const edge = (espnAdp != null && mkt != null) ? Math.round(espnAdp - mkt) : 0;
-      return { name: r.name, pos, team: r.team, bye: r.bye, inj: r.inj || null,
+      return { id: String(r.id), name: r.name, pos, team: r.team, bye: r.bye, inj: r.inj || null,
                pprProj: Math.round((r.proj && r.proj.ppr) || 0), proj,
                adp: consAdp, consAdp, espnAdp, sources, edge,
                tier: (r.tier && r.tier[fmt] != null) ? r.tier[fmt] : 1 };
@@ -757,7 +757,7 @@ class Component extends DCLogic {
   playersFromSample(scoring) {
     const recFactor = { WR: 0.30, TE: 0.30, RB: 0.11, QB: 0, K: 0, DST: 0 };
     const lossPerRec = scoring === 'ppr' ? 0 : scoring === 'half' ? 0.5 : 1;
-    return this.raw.map(r => {
+    return this.raw.map((r, i) => {
       const pprProj = r[3];
       const rec = Math.round(pprProj * recFactor[r[1]]);
       const proj = Math.round(pprProj - lossPerRec * rec);
@@ -766,7 +766,7 @@ class Component extends DCLogic {
         const off = (this.hashStr(r[0] + sn) % 13) - 6; s[sn] = Math.max(1, Math.round(r[4] + off));
       });
       const espnAdp = s.ESPN, consAdp = Math.round((s.Sleeper + s.Yahoo + s.FPros) / 3);
-      return { name: r[0], pos: r[1], team: r[2], bye: null, inj: null, pprProj, proj,
+      return { id: 'smp-' + i, name: r[0], pos: r[1], team: r[2], bye: null, inj: null, pprProj, proj,
                adp: r[4], consAdp, espnAdp, sources: s, edge: espnAdp - consAdp };
     });
   }
@@ -819,14 +819,38 @@ class Component extends DCLogic {
     const AMBER = { Questionable:'Q', NA:'NA', DNR:'DNR', COV:'COV' };
     return { label: AMBER[inj] || String(inj).slice(0,3).toUpperCase(), color:'#f5b14c', bg:'rgba(245,177,76,.14)', severe:false };
   }
+
+  // ===== probabilistic pick survival ==================================
+  // Model a player's actual draft slot as Normal(ADP, sigma). P(he's still on the
+  // board at your pick) = P(slot >= yourPick) = 1 - Phi((yourPick - ADP)/sigma).
+  erf(x) {                                   // Abramowitz & Stegun 7.1.26 (|err| < 1.5e-7)
+    const s = x < 0 ? -1 : 1; x = Math.abs(x);
+    const t = 1 / (1 + 0.3275911 * x);
+    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return s * y;
+  }
+  normCdf(z) { return 0.5 * (1 + this.erf(z / Math.SQRT2)); }
+  // Std-dev of a player's draft slot: an ADP-scaled base (later picks are more uncertain),
+  // widened when the ADP sources disagree. Capped so extremes stay sane.
+  pickSigma(adp, sources) {
+    const base = 2.5 + 0.16 * adp;
+    let disagree = 0;
+    if (sources) { const v = Object.keys(sources).map(k => sources[k]).filter(x => x != null); if (v.length >= 2) disagree = (Math.max.apply(null, v) - Math.min.apply(null, v)) / 2; }
+    return Math.max(2, Math.min(45, Math.max(base, disagree)));
+  }
+  survivalProb(adp, atPick, sources) {       // P(available at overall pick `atPick`), 0..1
+    if (adp == null) return 1;               // unranked -> assume he lasts
+    return 1 - this.normCdf((atPick - adp) / this.pickSigma(adp, sources));
+  }
+
   scoringLabel(s) { return { ppr:'PPR', half:'Half-PPR', standard:'Standard' }[s] || 'PPR'; }
   scoringShort(s) { return { ppr:'PPR', half:'HALF', standard:'STD' }[s] || 'PPR'; }
 
   cpuPick(draftedBy, team) {
-    const mine = this.players.filter(p => draftedBy[p.name] && draftedBy[p.name].team === team);
+    const mine = this.players.filter(p => draftedBy[p.id] && draftedBy[p.id].team === team);
     const c = { QB:0, RB:0, WR:0, TE:0 };
     mine.forEach(p => c[p.pos]++);
-    const avail = this.players.filter(p => !draftedBy[p.name]).sort((a,b) => a.consAdp - b.consAdp);
+    const avail = this.players.filter(p => !draftedBy[p.id]).sort((a,b) => a.consAdp - b.consAdp);
     const late = mine.length >= 8;
     const eligible = avail.filter(p => {
       if (p.pos === 'QB' && c.QB >= 2) return false;
@@ -855,8 +879,8 @@ class Component extends DCLogic {
       if (team === this.myTeam) break;
       const pick = this.cpuPick(draftedBy, team);
       if (!pick) break;
-      draftedBy[pick.name] = { team, pick: overall };
-      recent.unshift({ label: this.pickLabel(overall), overall, team, name: pick.name, pos: pick.pos });
+      draftedBy[pick.id] = { team, pick: overall };
+      recent.unshift({ label: this.pickLabel(overall), overall, team, id: pick.id, name: pick.name, pos: pick.pos });
       overall++;
     }
     return overall;
@@ -870,7 +894,7 @@ class Component extends DCLogic {
   }
 
   rosterFull() {
-    return this.players.filter(p => this.state && this.state.draftedBy[p.name] && this.state.draftedBy[p.name].team === this.myTeam).length >= this.ROSTER_MAX;
+    return this.players.filter(p => this.state && this.state.draftedBy[p.id] && this.state.draftedBy[p.id].team === this.myTeam).length >= this.ROSTER_MAX;
   }
 
   // ===== setup handlers =====
@@ -905,32 +929,32 @@ class Component extends DCLogic {
   goToSetup() { this.setState({ stage: 'setup' }); }
 
   // ===== draft handlers =====
-  draftMine(name) {
+  draftMine(id) {
     this.setState(prev => {
-      if (prev.draftedBy[name]) return null;
-      const p = this.players.find(x => x.name === name);
+      if (prev.draftedBy[id]) return null;
+      const p = this.players.find(x => x.id === id);
       if (!p) return null;
       const draftedBy = Object.assign({}, prev.draftedBy);
       const recent = prev.recent.slice();
       let overall = prev.overall;
-      draftedBy[name] = { team: this.myTeam, pick: overall };
-      recent.unshift({ label: this.pickLabel(overall), overall, team: this.myTeam, name: p.name, pos: p.pos });
+      draftedBy[id] = { team: this.myTeam, pick: overall };
+      recent.unshift({ label: this.pickLabel(overall), overall, team: this.myTeam, id: p.id, name: p.name, pos: p.pos });
       overall++;
       if (prev.mode === 'sim') overall = this.runSim(draftedBy, recent, overall);
       return { draftedBy, recent, overall, clock: 90 };
     });
   }
-  markGone(name) {
+  markGone(id) {
     this.setState(prev => {
-      if (prev.draftedBy[name]) return null;
-      const p = this.players.find(x => x.name === name);
+      if (prev.draftedBy[id]) return null;
+      const p = this.players.find(x => x.id === id);
       if (!p) return null;
       const draftedBy = Object.assign({}, prev.draftedBy);
       const recent = prev.recent.slice();
       let overall = prev.overall;
       const team = this.teamOnClock(overall);
-      draftedBy[name] = { team, pick: overall };
-      recent.unshift({ label: this.pickLabel(overall), overall, team, name: p.name, pos: p.pos });
+      draftedBy[id] = { team, pick: overall };
+      recent.unshift({ label: this.pickLabel(overall), overall, team, id: p.id, name: p.name, pos: p.pos });
       overall++;
       return { draftedBy, recent, overall };
     });
@@ -940,7 +964,7 @@ class Component extends DCLogic {
       if (!prev.recent.length) return null;
       const last = prev.recent[0];
       const draftedBy = Object.assign({}, prev.draftedBy);
-      delete draftedBy[last.name];
+      delete draftedBy[last.id];
       return { draftedBy, recent: prev.recent.slice(1), overall: last.overall, clock: 90 };
     });
   }
@@ -1059,9 +1083,9 @@ class Component extends DCLogic {
     const overall = S.overall;
     const isLive = S.mode === 'live';
     const drafted = S.draftedBy;
-    const avail = this.players.filter(p => !drafted[p.name]).sort((a,b) => a.consAdp - b.consAdp);
-    const myPlayers = this.players.filter(p => drafted[p.name] && drafted[p.name].team === myTeam)
-      .sort((a,b) => drafted[a.name].pick - drafted[b.name].pick);
+    const avail = this.players.filter(p => !drafted[p.id]).sort((a,b) => a.consAdp - b.consAdp);
+    const myPlayers = this.players.filter(p => drafted[p.id] && drafted[p.id].team === myTeam)
+      .sort((a,b) => drafted[a.id].pick - drafted[b.id].pick);
 
     const rosterData = this.buildRoster(myPlayers);
     const counts = { QB:0, RB:0, WR:0, TE:0, K:0, DST:0 };
@@ -1096,7 +1120,8 @@ class Component extends DCLogic {
       return 0.2;
     };
     const marginalValue = (p) => p.vorp * slotFactor(p.pos);
-    const likelyGone = (pos) => avail.filter(p => p.pos === pos && p.consAdp < nextMy).length;
+    // expected number at this position gone before your next pick (sum of taken-probabilities)
+    const likelyGone = (pos) => Math.round(avail.filter(p => p.pos === pos).reduce((n, p) => n + (1 - this.survivalProb(p.consAdp, nextMy, p.sources)), 0));
     const inTier = (p) => avail.filter(q => q.pos === p.pos && q.tier === p.tier).length;
 
     // OPPORTUNITY COST: VORP you'd lose by waiting. Count how many at the position go
@@ -1180,13 +1205,13 @@ class Component extends DCLogic {
       vorp: recPlayer.vorp, tier: recPlayer.tier,
       posColor: this.posColor(recPlayer.pos), posBg: this.posBg(recPlayer.pos),
       injShow: !!recInj, injLabel: recInj ? recInj.label : '', injColor: recInj ? recInj.color : '', injBg: recInj ? recInj.bg : '',
-      reasons: buildReasons(recPlayer), onDraft: () => this.draftMine(recPlayer.name)
+      reasons: buildReasons(recPlayer), onDraft: () => this.draftMine(recPlayer.id)
     } : null;
 
     const alts = altPlayers.map(a => ({
       name: a.player.name, pos: a.player.pos, team: a.player.team, proj: a.player.proj, vorp: a.player.vorp,
       posColor: this.posColor(a.player.pos), posBg: this.posBg(a.player.pos),
-      why: a.kind + ' · ' + a.note, onDraft: () => this.draftMine(a.player.name)
+      why: a.kind + ' · ' + a.note, onDraft: () => this.draftMine(a.player.id)
     }));
 
     const preview = previewPlayer ? {
@@ -1197,33 +1222,34 @@ class Component extends DCLogic {
     } : null;
 
     const watch = previewPlayer ? ranked.slice(0, 6).map(p => {
-      const gone = p.consAdp < nextMy;
+      const pct = Math.round(this.survivalProb(p.consAdp, nextMy, p.sources) * 100);
+      const hot = pct >= 65, warm = pct >= 35;
       return {
         name: p.name, pos: p.pos, team: p.team, proj: p.proj, vorp: p.vorp,
         posColor: this.posColor(p.pos), posBg: this.posBg(p.pos),
-        surv: gone ? 'LIKELY GONE by ' + nextLabel : 'Should reach you',
-        survColor: gone ? '#f0726a' : '#3ddc91',
-        survBg: gone ? 'rgba(240,114,106,.13)' : 'rgba(61,220,145,.1)'
+        surv: pct + '% to reach ' + nextLabel,
+        survColor: hot ? '#3ddc91' : warm ? '#f5b14c' : '#f0726a',
+        survBg: hot ? 'rgba(61,220,145,.1)' : warm ? 'rgba(245,177,76,.13)' : 'rgba(240,114,106,.13)'
       };
     }) : [];
 
-    const recName = recPlayer ? recPlayer.name : (previewPlayer ? previewPlayer.name : null);
+    const recId = recPlayer ? recPlayer.id : (previewPlayer ? previewPlayer.id : null);
     const filt = S.filter;
     const q = (S.search || '').trim().toLowerCase();
     const boardSrc = avail
       .filter(p => filt === 'ALL' ? true : p.pos === filt)
       .filter(p => q === '' ? true : p.name.toLowerCase().indexOf(q) !== -1);
-    const rowAction = (name) => { if (isLive && !myTurn) this.markGone(name); else this.draftMine(name); };
+    const rowAction = (id) => { if (isLive && !myTurn) this.markGone(id); else this.draftMine(id); };
     const board = boardSrc.slice(0, 60).map((p, i) => {
       const bi = this.injInfo(p.inj);
       return {
       rank: i + 1, name: p.name, pos: p.pos, team: p.team, proj: p.proj, consAdp: p.consAdp,
       tier: p.tier, vorp: p.vorp, posColor: this.posColor(p.pos),
-      isRec: p.name === recName, edgeShow: p.edge >= 4,
+      isRec: p.id === recId, edgeShow: p.edge >= 4,
       edgeLabel: '↑' + p.edge + ' ESPN', edgeColor: '#3ddc91', edgeBg: 'rgba(61,220,145,.12)',
       injShow: !!bi, injLabel: bi ? bi.label : '', injColor: bi ? bi.color : '', injBg: bi ? bi.bg : '',
-      rowBg: p.name === recName ? 'rgba(61,220,145,.07)' : 'transparent',
-      onPick: () => rowAction(p.name)
+      rowBg: p.id === recId ? 'rgba(61,220,145,.07)' : 'transparent',
+      onPick: () => rowAction(p.id)
       };
     });
 
@@ -1251,8 +1277,8 @@ class Component extends DCLogic {
     // ===== LEAGUE BOARD: every team's room, click to inspect =====
     const POS_ORDER = ['QB','RB','WR','TE','K','DST'];
     const teamPlayersFor = (t) => this.players
-      .filter(p => drafted[p.name] && drafted[p.name].team === t)
-      .sort((a,b) => drafted[a.name].pick - drafted[b.name].pick);
+      .filter(p => drafted[p.id] && drafted[p.id].team === t)
+      .sort((a,b) => drafted[a.id].pick - drafted[b.id].pick);
     const vt = (S.viewTeam != null && S.viewTeam >= 0 && S.viewTeam < this.TEAMS) ? S.viewTeam : null;
     const teams = [];
     for (let t = 0; t < this.TEAMS; t++) {
@@ -1284,7 +1310,7 @@ class Component extends DCLogic {
         nextLabel: nextP ? this.pickLabel(nextP) : 'done',
         starterPts: rd.starterPts, roster: rd.rows, empty: tp.length === 0,
         picks: tp.slice().reverse().map(p => ({
-          label: this.pickLabel(drafted[p.name].pick), name: p.name, pos: p.pos, team: p.team,
+          label: this.pickLabel(drafted[p.id].pick), name: p.name, pos: p.pos, team: p.team,
           posColor: this.posColor(p.pos)
         }))
       };
@@ -1332,7 +1358,7 @@ class Component extends DCLogic {
     weaknesses = weaknesses.filter(w=>!strengths.some(s=>s.pos===w.pos));
     const mkSW = (p) => ({ pos:p.pos, color:this.posColor(p.pos), bg:this.posBg(p.pos), tag:swLabel(p.z), detail:ordinal(p.rank)+' of '+this.TEAMS+' in the league at '+p.pos });
     const reportPicks = teamPlayersFor(myTeam).map(p=>({
-      label:this.pickLabel(drafted[p.name].pick), name:p.name, pos:p.pos, team:p.team, proj:p.proj,
+      label:this.pickLabel(drafted[p.id].pick), name:p.name, pos:p.pos, team:p.team, proj:p.proj,
       posColor:this.posColor(p.pos), posBg:this.posBg(p.pos)
     }));
     const reportGrades = rankedTeams.map(a=>({
