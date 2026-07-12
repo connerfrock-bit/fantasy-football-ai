@@ -307,6 +307,10 @@ class Component extends DCLogic {
   }
 
   hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+  // Punctuation-insensitive name key so a handoff roster (straight apostrophes, from
+  // the cockpit/Sleeper) matches this page's sample names (curly). Suffixes are kept
+  // so "Kenneth Walker" and "Kenneth Walker III" don't collide.
+  normName(s) { return (s || '').toLowerCase().replace(/’/g, "'").replace(/['.]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(); }
   posColor(pos) { return { QB:'#f0726a', RB:'#4fd1ab', WR:'#5aa9f0', TE:'#c98bf0', DST:'#9aa0a9', K:'#d8b46a' }[pos] || '#8b8f98'; }
   matchupLabel(m) { return { great:'great matchup', good:'good matchup', neutral:'neutral matchup', tough:'tough matchup', avoid:'avoid — elite D' }[m] || ''; }
   matchupColor(m) { return { great:'#3ddc91', good:'#7fd6a8', neutral:'#9aa0a9', tough:'#f5b14c', avoid:'#f0726a' }[m] || '#9aa0a9'; }
@@ -327,7 +331,9 @@ class Component extends DCLogic {
 
   rosterPlayers() {
     const all = window.FF_PLAYERS || [];
-    return this.active().roster.map(n => all.find(p => p.name === n)).filter(Boolean).map(p => this.enrich(p, this.state.week));
+    const byNorm = {};
+    all.forEach(p => { byNorm[this.normName(p.name)] = p; });
+    return this.active().roster.map(n => byNorm[this.normName(n)]).filter(Boolean).map(p => this.enrich(p, this.state.week));
   }
 
   // optimal slot assignment maximizing proj
@@ -363,8 +369,8 @@ class Component extends DCLogic {
 
   toggleBench(name) { this.mutateActive(t => { const l = Object.assign({}, t.locks); l[name] = l[name] === 'bench' ? undefined : 'bench'; return { locks: l }; }); }
   toggleStart(name) { this.mutateActive(t => { const l = Object.assign({}, t.locks); l[name] = l[name] === 'start' ? undefined : 'start'; return { locks: l }; }); }
-  addPlayer(name) { this.mutateActive(t => ({ roster: t.roster.indexOf(name) === -1 ? t.roster.concat(name) : t.roster })); this.setState({ addSearch: '' }); }
-  removePlayer(name) { this.mutateActive(t => { const l = Object.assign({}, t.locks); delete l[name]; return { roster: t.roster.filter(n => n !== name), locks: l }; }); }
+  addPlayer(name) { const k = this.normName(name); this.mutateActive(t => ({ roster: t.roster.some(n => this.normName(n) === k) ? t.roster : t.roster.concat(name) })); this.setState({ addSearch: '' }); }
+  removePlayer(name) { const k = this.normName(name); this.mutateActive(t => { const l = Object.assign({}, t.locks); delete l[name]; return { roster: t.roster.filter(n => this.normName(n) !== k), locks: l }; }); }
   optimize() { this.mutateActive(() => ({ locks: {} })); }
 
   renderVals() {
@@ -507,8 +513,8 @@ class Component extends DCLogic {
 
     // add player search
     const q = (this.state.addSearch || '').trim().toLowerCase();
-    const rosterSet = new Set(this.active().roster);
-    const addResults = q ? (window.FF_PLAYERS || []).filter(p => !rosterSet.has(p.name) && p.name.toLowerCase().indexOf(q) !== -1).slice(0, 8).map(p => ({
+    const rosterSet = new Set(this.active().roster.map(n => this.normName(n)));
+    const addResults = q ? (window.FF_PLAYERS || []).filter(p => !rosterSet.has(this.normName(p.name)) && p.name.toLowerCase().indexOf(q) !== -1).slice(0, 8).map(p => ({
       name: p.name, pos: p.pos, team: p.team, proj: this.enrich(p, week).proj, posColor: this.posColor(p.pos), onAdd: () => this.addPlayer(p.name)
     })) : [];
 

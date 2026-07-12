@@ -356,7 +356,10 @@
         <div style="font-size:13px; font-weight:700; letter-spacing:1.5px; color:#3ddc91;">DRAFT COMPLETE</div>
         <div style="font-size:30px; font-weight:800;">Your roster is locked in</div>
         <div style="font-size:15px; color:#9aa0a9; max-width:420px; line-height:1.5;">{{ totalPicksMine }} players drafted · {{ starterPts }} projected starter points. Hit <b style="color:#e9eaec;">Reset</b> to run it again.</div>
-        <button onClick="{{ onOpenReport }}" style="margin-top:6px; background:linear-gradient(135deg,#3ddc91,#22b873); border:none; color:#06130d; font-family:'Hanken Grotesk'; font-weight:800; font-size:14px; letter-spacing:.3px; padding:13px 24px; border-radius:11px; cursor:pointer;" style-hover="filter:brightness(1.07);">View Draft Report Card →</button>
+        <div style="display:flex; gap:10px; margin-top:6px;">
+          <button onClick="{{ onOpenReport }}" style="background:linear-gradient(135deg,#3ddc91,#22b873); border:none; color:#06130d; font-family:'Hanken Grotesk'; font-weight:800; font-size:14px; letter-spacing:.3px; padding:13px 24px; border-radius:11px; cursor:pointer;" style-hover="filter:brightness(1.07);">View Draft Report Card →</button>
+          <button onClick="{{ onSendToOptimizer }}" style="background:rgba(90,169,240,.14); border:1px solid rgba(90,169,240,.5); color:#cfe3fb; font-family:'Hanken Grotesk'; font-weight:700; font-size:14px; padding:13px 22px; border-radius:11px; cursor:pointer;" style-hover="background:rgba(90,169,240,.24);">Send roster to Lineup Optimizer →</button>
+        </div>
       </div>
       </sc-if>
     </div>
@@ -440,7 +443,8 @@
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:22px;">
         <div style="width:30px; height:30px; border-radius:7px; background:linear-gradient(135deg,#3ddc91,#1f8a5b); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#06130d;">D</div>
         <span style="font-size:13px; font-weight:700; letter-spacing:.3px;">{{ leagueName }}</span>
-        <button onClick="{{ onCloseReport }}" style="margin-left:auto; background:#1a1d23; border:1px solid #2a2e37; color:#aeb2ba; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; padding:9px 16px; border-radius:9px; cursor:pointer;" style-hover="background:#22262e; color:#e9eaec;">← Back to cockpit</button>
+        <button onClick="{{ onSendToOptimizer }}" style="margin-left:auto; background:rgba(90,169,240,.14); border:1px solid rgba(90,169,240,.5); color:#cfe3fb; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; padding:9px 16px; border-radius:9px; cursor:pointer;" style-hover="background:rgba(90,169,240,.24);">Send roster to Lineup Optimizer →</button>
+        <button onClick="{{ onCloseReport }}" style="background:#1a1d23; border:1px solid #2a2e37; color:#aeb2ba; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; padding:9px 16px; border-radius:9px; cursor:pointer;" style-hover="background:#22262e; color:#e9eaec;">← Back to cockpit</button>
       </div>
 
       <!-- hero -->
@@ -970,6 +974,27 @@ class Component extends DCLogic {
   }
   openTeam(idx) { this.setState({ viewTeam: idx }); }
   closeLeague() { this.setState({ viewTeam: null }); }
+  // Hand the drafted roster to the Lineup Optimizer: write it as a new active team
+  // in the shared localStorage contract, then jump to the optimizer. Skill players
+  // only (the optimizer sets its own D/ST + K). Re-runs replace the prior handoff,
+  // never a team the user made themselves.
+  sendToOptimizer() {
+    const drafted = this.state.draftedBy;
+    const roster = this.players
+      .filter(p => drafted[p.id] && drafted[p.id].team === this.myTeam)
+      .sort((a, b) => drafted[a.id].pick - drafted[b.id].pick)
+      .filter(p => ['QB', 'RB', 'WR', 'TE'].indexOf(p.pos) !== -1)
+      .map(p => p.name);
+    const handoffName = 'My ESPN League — draft';
+    let data = { teams: [], activeId: null };
+    try { const raw = localStorage.getItem('ffOptimizerTeams_v1'); if (raw) { const d = JSON.parse(raw); if (d && Array.isArray(d.teams)) data = d; } } catch (e) {}
+    const id = 't' + Date.now();
+    data.teams = data.teams.filter(t => t && t.name !== handoffName);   // replace a prior handoff, keep user teams
+    data.teams.push({ id, name: handoffName, roster, locks: {} });
+    data.activeId = id;
+    try { localStorage.setItem('ffOptimizerTeams_v1', JSON.stringify(data)); } catch (e) {}
+    window.location.href = 'Lineup%20Optimizer.dc.html';
+  }
   nextPickForTeam(team, fromOverall) {
     const max = this.TEAMS * this.ROSTER_MAX;
     for (let p = fromOverall; p <= max; p++) if (this.teamOnClock(p) === team) return p;
@@ -1403,6 +1428,7 @@ class Component extends DCLogic {
       reportOpen, report,
       onOpenReport: () => this.setState({ showReport: true }),
       onCloseReport: () => this.setState({ showReport: false }),
+      onSendToOptimizer: () => this.sendToOptimizer(),
       adpSourceLabel, posStrategy,
       fmt: this.scoringLabel(this.scoring) + ' · ' + this.TEAMS + '-Team Snake · Pick ' + (this.myTeam + 1) + ' · ' + this.numQB + 'QB ' + this.numFlex + 'FLEX ' + this.numBench + 'BN',
       projLabel: 'PROJ ' + this.scoringShort(this.scoring),

@@ -4,6 +4,9 @@ pipeline/secrets/
 # Cached raw API pulls (large; regenerated on each run)
 pipeline/data/raw/
 
+# Scheduled-refresh logs (runtime artifact)
+pipeline/logs/
+
 # Python
 __pycache__/
 *.pyc
