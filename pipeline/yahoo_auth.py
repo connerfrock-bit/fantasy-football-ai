@@ -10,7 +10,7 @@ Usage:
 
 Other modules call access_token() to get a valid (auto-refreshed) bearer token.
 """
-import base64, json, os, sys, time, urllib.parse, urllib.request
+import base64, json, os, sys, time, urllib.parse, urllib.request, urllib.error
 
 HERE   = os.path.dirname(os.path.abspath(__file__))
 SEC    = os.path.join(HERE, "secrets")
@@ -69,11 +69,32 @@ def access_token():
     return t["access_token"]
 
 def test():
+    """Verify end-to-end access. Separates the two failure modes so a bad run is self-explaining:
+       token problem  -> access_token() raises;  app-permission problem -> HTTP 403 'not authorized'."""
+    try:
+        tok = access_token()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"FAIL (token): {e}\n  -> re-authorize:  python pipeline/yahoo_auth.py url")
+        sys.exit(1)
     req = urllib.request.Request(
         "https://fantasysports.yahooapis.com/fantasy/v2/game/nfl?format=json",
-        headers={"Authorization": "Bearer " + access_token()})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        d = json.loads(r.read())
+        headers={"Authorization": "Bearer " + tok})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            d = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        if e.code == 403 and "not authorized" in body:
+            print("FAIL (app permission): token is valid, but Yahoo returns 403 "
+                  "'This application is not authorized to perform this action.'")
+            print("  The Yahoo Developer app has lost its Fantasy Sports API permission. Fix:")
+            print("   1) https://developer.yahoo.com/apps/  -> open your app")
+            print("   2) API Permissions -> enable 'Fantasy Sports' with Read access -> Save")
+            print("   3) re-consent:  python pipeline/yahoo_auth.py url   (then ... code <CODE>)")
+            print("   4) re-verify:   python pipeline/yahoo_auth.py test")
+        else:
+            print(f"FAIL (HTTP {e.code}): {body[:300]}")
+        sys.exit(1)
     game = d["fantasy_content"]["game"][0]
     print(f"OK - authorized. Current NFL game_key={game.get('game_key')} season={game.get('season')}")
 

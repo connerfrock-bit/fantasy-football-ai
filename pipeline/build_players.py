@@ -22,7 +22,7 @@ Outputs (pipeline/data/):
 stdlib only. Run:  python pipeline/build_players.py
 """
 
-import json, os, re, sys, time, urllib.request
+import json, os, re, sys, time, urllib.request, urllib.error
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -250,6 +250,56 @@ def load_yahoo_adp(token, pages=12):
     log(f"  Yahoo ADP: {len(out)} players")
     return out
 
+# ---- MyFantasyLeague (free, no API key) -> aggregate real+mock draft ADP, name-joined ----
+MFL_BASE = "https://api.myfantasyleague.com"
+
+def _mfl_players(year):
+    """MFL player id -> ('First Last', pos). One export call (~2.6k rows)."""
+    d = fetch_json(f"{MFL_BASE}/{year}/export?TYPE=players&DETAILS=1&JSON=1")
+    out = {}
+    for p in d.get("players", {}).get("player", []):
+        nm = p.get("name", "")
+        if "," in nm:                                  # MFL uses "Last, First" -> "First Last"
+            last, first = (s.strip() for s in nm.split(",", 1))
+            nm = f"{first} {last}"
+        out[p.get("id")] = (nm, fix_pos(p.get("position")))
+    return out
+
+def load_mfl_adp(year):
+    """Aggregate ADP from MFL drafts, keyed by (norm_name, pos) -> {fmt: adp}. MFL serves one ADP
+       per scoring flag, so the PPR run feeds ppr+half and the standard run feeds std."""
+    log("- MFL ADP ...")
+    names = _mfl_players(year)
+    idx, drafts = {}, {}
+    for fmt, is_ppr in (("ppr", 1), ("std", 0)):
+        adp = fetch_json(f"{MFL_BASE}/{year}/export?TYPE=adp&PERIOD=RECENT&FCOUNT={TEAMS}"
+                         f"&IS_PPR={is_ppr}&IS_MOCK=-1&INJURED=1&CUTOFF=5&JSON=1").get("adp", {})
+        drafts[fmt] = adp.get("totalDrafts")
+        for r in adp.get("player", []):
+            np_ = names.get(r.get("id"))
+            ap  = adp_or_none(r.get("averagePick"))
+            if np_ and np_[0] and np_[1] and ap:
+                idx.setdefault((norm_name(np_[0]), np_[1]), {})[fmt] = ap
+    log(f"  MFL ADP: {len(idx)} players  (drafts: ppr={drafts.get('ppr')} std={drafts.get('std')})")
+    return idx
+
+# ---- FantasyCalc (free, no API key) -> 1-QB consensus rank, joined by Sleeper id ----
+FANTASYCALC_URL = "https://api.fantasycalc.com/values/current"
+
+def load_fantasycalc(teams):
+    """FantasyCalc redraft consensus keyed by Sleeper id -> {fmt: rank}. Their maybeAdp is empty, so
+       we use overallRank as the signal; numQbs=1 keeps QBs on a single-QB scale. ppr: 1/0.5/0."""
+    log("- FantasyCalc ranks ...")
+    idx = {}
+    for fmt, ppr in (("ppr", 1), ("half", 0.5), ("std", 0)):
+        for x in fetch_json(f"{FANTASYCALC_URL}?isDynasty=false&numQbs=1&numTeams={teams}&ppr={ppr}"):
+            sid  = (x.get("player") or {}).get("sleeperId")
+            rank = x.get("overallRank")
+            if sid and rank:
+                idx.setdefault(str(sid), {})[fmt] = float(rank)
+    log(f"  FantasyCalc ranks: {len(idx)} players")
+    return idx
+
 # =============================== SOURCE REGISTRY ===============================
 # Every external feed is a small self-contained class. To ADD a source closer to the
 # season, write one subclass + append it to the matching *_feeds() list below; the
@@ -362,18 +412,55 @@ class YahooAdp(AdpFeed):
             from yahoo_auth import access_token
             self._idx = load_yahoo_adp(access_token())
         except Exception as e:                   # noqa: BLE001  (no creds / token issue -> just skip)
-            log(f"  Yahoo ADP: unavailable ({e}) - skipping")
             self._idx = {}
+            body = e.read().decode("utf-8", "replace") if isinstance(e, urllib.error.HTTPError) else ""
+            if isinstance(e, urllib.error.HTTPError) and e.code == 403 and "not authorized" in body:
+                # Token is fine but Yahoo says the *app* lacks permission: the Yahoo Developer
+                # app lost its Fantasy Sports API permission. No code fix - re-enable it in the
+                # dev console, then re-consent. Surface it loudly instead of silently dropping a source.
+                log("  Yahoo ADP: HTTP 403 'application is not authorized' - the Yahoo Developer app")
+                log("             lost its Fantasy Sports (Read) API permission. FIX: re-enable it at")
+                log("             https://developer.yahoo.com/apps/ then run:  python pipeline/yahoo_auth.py test")
+            else:
+                log(f"  Yahoo ADP: unavailable ({e}) - skipping")
     def adp(self, player, fmt):
         return self._idx.get((norm_name(player["name"]), player["pos"]))
+
+# ---- MyFantasyLeague: aggregate ADP (free, no key), name-joined ----
+class MflAdp(AdpFeed):
+    key, formats = "mfl", ("ppr", "half", "std")   # PPR aggregate feeds ppr+half; standard feeds std
+    def load(self):
+        self._idx = load_mfl_adp(SEASON)
+    def adp(self, player, fmt):
+        # MFL aggregates all league types incl. Superflex/2QB, which pulls QB ADP 1-2 rounds too
+        # early (Josh Allen ~4 vs ~25 in 1-QB). No single-QB filter on the export, so drop QB here
+        # and let sleeper/espn/ffcalc carry it. RB/WR/TE/K/DEF are unaffected.
+        if player["pos"] == "QB":
+            return None
+        rec = self._idx.get((norm_name(player["name"]), player["pos"]))
+        if not rec:
+            return None
+        return rec.get("std") if fmt == "std" else rec.get("ppr")
+
+# ---- FantasyCalc: 1-QB consensus rank as an ADP-like signal, joined by Sleeper id ----
+class FantasyCalcAdp(AdpFeed):
+    key, formats = "fantasycalc", ("ppr", "half", "std")
+    def load(self):
+        self._idx = load_fantasycalc(TEAMS)
+    def adp(self, player, fmt):
+        # overallRank (1..~200), not literal ADP - FantasyCalc's maybeAdp is empty. In 1-QB it tracks
+        # draft order closely (e.g. Josh Allen ~21), so it blends as a reasonable ADP-like signal.
+        return self._idx.get(player["id"], {}).get(fmt)
 
 # ---- registries: append a new feed here, nothing else to touch ----
 def adp_feeds(proj_by_id):
     return [
         SleeperAdp(proj_by_id, enabled=True),
         EspnAdp(enabled=True),
-        YahooAdp(enabled=True),
-        FfcalcAdp(enabled=True),     # 2026 mocks live as of Jul 2026 (~1.5k drafts and growing)
+        YahooAdp(enabled=False),        # dead: Yahoo closed public API access ~2026-07-31 (approval-gated); flip True if approved
+        MflAdp(enabled=True),           # free aggregate draft ADP (QB excluded - Superflex-contaminated)
+        FantasyCalcAdp(enabled=True),   # free 1-QB consensus rank, joined by Sleeper id
+        FfcalcAdp(enabled=True),        # 2026 mocks live as of Jul 2026 (~1.5k drafts and growing)
         # e.g. FantasyProsAdp(enabled=False), ...
     ]
 def proj_feeds(proj_by_id):
