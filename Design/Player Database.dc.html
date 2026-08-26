@@ -30,7 +30,7 @@
         <div style="width:30px; height:30px; border-radius:7px; background:linear-gradient(135deg,#c98bf0,#7a3fd0); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#15041f;">DB</div>
         <div style="display:flex; flex-direction:column; line-height:1.15;">
           <span style="font-weight:700; font-size:14px; letter-spacing:.2px;">Player Database</span>
-          <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace; letter-spacing:.3px;">2026 projections, ADP &amp; stats · {{ totalCount }} players · {{ shownCount }} shown</span>
+          <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace; letter-spacing:.3px;">Ranked by consensus ADP · projections &amp; stats · {{ totalCount }} players · {{ shownCount }} shown</span>
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
@@ -49,6 +49,11 @@
           <button onClick="{{ t.onClick }}" style="font-family:'Hanken Grotesk'; font-size:12.5px; font-weight:700; letter-spacing:.4px; padding:9px 18px; border:none; border-bottom:2px solid {{ t.border }}; background:transparent; color:{{ t.color }}; cursor:pointer;">{{ t.label }}</button>
         </sc-for>
       </div>
+      <div style="display:flex; align-items:center; gap:11px; padding-bottom:7px; font-size:10px; font-weight:700; letter-spacing:.5px;">
+        <span style="color:#5a5f68;">HIGH ADP VARIANCE vs ESPN</span>
+        <span style="display:inline-flex; align-items:center; gap:5px; color:#3ddc91;"><span style="display:inline-block; width:8px; height:12px; border-left:3px solid #3ddc91; background:rgba(61,220,145,.14);"></span>value</span>
+        <span style="display:inline-flex; align-items:center; gap:5px; color:#f0726a;"><span style="display:inline-block; width:8px; height:12px; border-left:3px solid #f0726a; background:rgba(240,114,106,.14);"></span>reach</span>
+      </div>
       <div style="display:flex; align-items:center; gap:5px; padding-bottom:6px;">
         <span style="font-size:10px; font-weight:700; letter-spacing:.8px; color:#5a5f68; margin-right:3px;">SCORING</span>
         <sc-for list="{{ scoringTabs }}" as="s" hint-placeholder-count="3">
@@ -61,13 +66,13 @@
   <!-- TABLE -->
   <div style="flex:1; min-height:0; overflow:auto;">
     <div style="width:max-content; min-width:100%; font-size:13px;">
-      <div style="display:flex; position:sticky; top:0; z-index:2; background:#15171c; border-bottom:1px solid #262a33;">
+      <div style="display:flex; position:sticky; top:0; z-index:2; background:#15171c; border-bottom:1px solid #262a33; border-left:3px solid transparent;">
         <sc-for list="{{ columns }}" as="c" hint-placeholder-count="12">
           <div onClick="{{ c.onSort }}" style="width:{{ c.width }}px; flex:none; padding:11px 14px; text-align:{{ c.align }}; font-size:10.5px; font-weight:700; letter-spacing:.7px; color:{{ c.color }}; cursor:pointer; white-space:nowrap; user-select:none;">{{ c.label }}{{ c.arrow }}</div>
         </sc-for>
       </div>
       <sc-for list="{{ rows }}" as="r" hint-placeholder-count="24">
-        <div style="display:flex; background:{{ r.bg }}; border-bottom:1px solid #181b21;" style-hover="background:#1a1d24;">
+        <div style="display:flex; background:{{ r.bg }}; border-left:3px solid {{ r.accent }}; border-bottom:1px solid #181b21;" style-hover="background:#1a1d24;">
           <sc-for list="{{ r.cells }}" as="cell" hint-placeholder-count="12">
             <div style="width:{{ cell.width }}px; flex:none; padding:9px 14px; text-align:{{ cell.align }}; font-size:{{ cell.size }}; font-weight:{{ cell.weight }}; font-family:{{ cell.font }}; color:{{ cell.color }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ cell.text }}</div>
           </sc-for>
@@ -112,10 +117,15 @@ class Component extends DCLogic {
       const others = Object.keys(a).filter(k => !META[k] && a[k] != null).map(k => a[k]);
       const mkt = others.length ? others.reduce((x,y) => x + y, 0) / others.length : null;
       const edge = (a.espn != null && mkt != null) ? Math.round(a.espn - mkt) : null;
+      // High-variance flag: ESPN disagrees sharply with the other sources. Guardrails skip the
+      // ESPN-list-boundary artifact (ESPN's ADP floors ~160, so deep players look falsely divergent)
+      // and only consider the draftable universe. Sign carries the direction (see the highlight).
+      const ESPN_FLOOR = 160;
+      const hivar = (edge != null && a.espn < ESPN_FLOOR && a.consensus != null && a.consensus <= 180 && Math.abs(edge) >= 20) ? edge : null;
       return {
         name: r.name, pos, team: r.team, bye: r.bye,
         proj: pr != null ? Math.round(pr * 10) / 10 : null,
-        adp: a.consensus != null ? a.consensus : null, edge,
+        adp: a.consensus != null ? a.consensus : null, edge, hivar,
         tier: (r.tier && r.tier[fmt] != null) ? r.tier[fmt] : null,
         gp: s.gp, tgt: s.tgt, rec: s.rec, rec_yd: s.rec_yd, rec_td: s.rec_td,
         rush_att: s.rush_att, rush_yd: s.rush_yd, rush_td: s.rush_td,
@@ -134,10 +144,11 @@ class Component extends DCLogic {
     });
     list.forEach(p => { p.vorp = (p.proj != null) ? Math.max(0, Math.round(p.proj - (baseline[p.pos]||0))) : null; });
 
-    // ranks by the selected format's projection
-    list.slice().sort((a,b) => (b.proj||-1) - (a.proj||-1)).forEach((p,i) => { p.ovrRank = i + 1; });
+    // ranks by consensus ADP (ascending; players without an ADP fall to the bottom)
+    const byAdp = (a,b) => (a.adp == null ? Infinity : a.adp) - (b.adp == null ? Infinity : b.adp);
+    list.slice().sort(byAdp).forEach((p,i) => { p.ovrRank = i + 1; });
     ['QB','RB','WR','TE'].forEach(pos => {
-      list.filter(p => p.pos === pos).sort((a,b) => (b.proj||-1) - (a.proj||-1)).forEach((p,i) => { p.posRank = i + 1; });
+      list.filter(p => p.pos === pos).sort(byAdp).forEach((p,i) => { p.posRank = i + 1; });
     });
     return list;
   }
@@ -250,10 +261,17 @@ class Component extends DCLogic {
       return { text, align: d.align, color, weight, size, font, width: this.colWidth(d.key) };
     };
 
-    const rows = list.map((p, i) => ({
-      bg: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.012)',
-      cells: defs.map(d => cellData(d, p))
-    }));
+    const rows = list.map((p, i) => {
+      let bg = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.012)';
+      let accent = 'transparent';
+      if (p.hivar != null) {                            // high ADP variance vs ESPN
+        // hivar > 0: ESPN ranks him later than the market -> falls to you on ESPN (value, green)
+        // hivar < 0: ESPN ranks him earlier -> you'd reach on ESPN (red)
+        bg = p.hivar > 0 ? 'rgba(61,220,145,.11)' : 'rgba(240,114,106,.11)';
+        accent = p.hivar > 0 ? '#3ddc91' : '#f0726a';
+      }
+      return { bg, accent, cells: defs.map(d => cellData(d, p)) };
+    });
 
     const posTabs = ['ALL','QB','RB','WR','TE'].map(t => ({
       label: t, onClick: () => this.setState({ pos: t }),
