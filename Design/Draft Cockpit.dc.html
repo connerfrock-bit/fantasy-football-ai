@@ -171,7 +171,7 @@
           <span style="display:inline-flex; align-items:center; gap:7px; background:rgba(61,220,145,.12); border:1px solid rgba(61,220,145,.4); color:#3ddc91; font-weight:700; font-size:12px; letter-spacing:.5px; padding:5px 11px; border-radius:20px;"><span style="width:7px;height:7px;border-radius:50%;background:#3ddc91;animation:blink 1.1s infinite;"></span>YOUR PICK</span>
         </sc-if>
         <sc-if value="{{ notMyTurn }}" hint-placeholder-val="{{ false }}">
-          <span style="display:inline-flex; align-items:center; gap:7px; color:#8b8f98; font-weight:600; font-size:12px; padding:5px 0;">{{ clockStatus }}</span>
+          <span style="display:inline-flex; align-items:center; gap:7px; color:#8b8f98; font-weight:600; font-size:12px; padding:5px 0;"><span style="width:7px;height:7px;border-radius:50%;background:#f5b14c;animation:blink 1.1s infinite;"></span>{{ clockStatus }}</span>
         </sc-if>
         <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#7e838d; margin-top:4px;">Overall #{{ overall }} · {{ statusRight }}</span>
       </div>
@@ -649,6 +649,8 @@ class Component extends DCLogic {
     this.numFlex = 1;
     this.numBench = 6;
     this.ROSTER_MAX = this.rosterMax(1, 1, 6);
+    this.QB_MIN_ROUND = 3;        // house rule: don't recommend a QB before this round
+    this.CPU_DELAY_MS = 2000;     // pacing between opponent picks in a simulation (~2s, jittered)
     this.players = this.buildPlayers('ppr', 10);
     const init = this.initDraft('live');
     this.state = {
@@ -850,51 +852,117 @@ class Component extends DCLogic {
   scoringLabel(s) { return { ppr:'PPR', half:'Half-PPR', standard:'Standard' }[s] || 'PPR'; }
   scoringShort(s) { return { ppr:'PPR', half:'HALF', standard:'STD' }[s] || 'PPR'; }
 
-  cpuPick(draftedBy, team) {
+  // ===== CPU drafting: opponents draft off the ESPN board, fill real roster needs, follow
+  // positional runs, and grab K/DST late — so sharp values ESPN sleeps on slide to YOU. =====
+  cpuPick(draftedBy, team, overall, recent) {
     const mine = this.players.filter(p => draftedBy[p.id] && draftedBy[p.id].team === team);
-    const c = { QB:0, RB:0, WR:0, TE:0 };
-    mine.forEach(p => c[p.pos]++);
-    const avail = this.players.filter(p => !draftedBy[p.id]).sort((a,b) => a.consAdp - b.consAdp);
-    const late = mine.length >= 8;
-    const eligible = avail.filter(p => {
-      if (p.pos === 'QB' && c.QB >= 2) return false;
-      if (p.pos === 'TE' && c.TE >= 2) return false;
-      if (p.pos === 'QB' && c.QB >= 1 && !late) return false;
-      if (p.pos === 'TE' && c.TE >= 1 && !late) return false;
-      return true;
-    });
-    if (!eligible.length) return avail[0] || null;
-    // variance: pick from a small window around the best available, weighted toward higher rank,
-    // so no two simulated drafts play out identically
-    const best = eligible[0];
-    const window = eligible.filter(p => p.consAdp <= best.consAdp + 8).slice(0, 4);
-    const weights = [0.55, 0.27, 0.12, 0.06].slice(0, window.length);
-    const total = weights.reduce((a,b) => a + b, 0);
-    let r = Math.random() * total;
-    for (let i = 0; i < window.length; i++) { r -= weights[i]; if (r <= 0) return window[i]; }
-    return window[0];
-  }
+    const c = { QB:0, RB:0, WR:0, TE:0, K:0, DST:0 };
+    mine.forEach(p => { if (c[p.pos] != null) c[p.pos]++; });
+    const picksLeft = this.ROSTER_MAX - mine.length;
+    const rounds = this.ROSTER_MAX;
+    const round = Math.ceil((overall || 1) / this.TEAMS);
+    const avail = this.players.filter(p => !draftedBy[p.id]);
+    if (!avail.length) return null;
 
-  runSim(draftedBy, recent, overall) {
-    let guard = 0;
-    while (overall <= this.TEAMS * this.ROSTER_MAX && guard < 600) {
-      guard++;
-      const team = this.teamOnClock(overall);
-      if (team === this.myTeam) break;
-      const pick = this.cpuPick(draftedBy, team);
-      if (!pick) break;
-      draftedBy[pick.id] = { team, pick: overall };
-      recent.unshift({ label: this.pickLabel(overall), overall, team, id: pick.id, name: pick.name, pos: pick.pos });
-      overall++;
+    const needsK = c.K < 1, needsDST = c.DST < 1;
+    const mandatoryLeft = (needsK ? 1 : 0) + (needsDST ? 1 : 0);
+
+    // The board through an ESPN drafter's eyes: ESPN ADP first, consensus (pushed later) for
+    // players ESPN doesn't rank. Lower = they'd take him sooner.
+    const board = (p) => (p.espnAdp != null ? p.espnAdp : (p.consAdp != null ? p.consAdp + 16 : 400));
+
+    // 1) MUST fill K/DST before running out of picks, so every team ends legal (real behavior).
+    if (picksLeft <= mandatoryLeft) {
+      const want = needsDST ? 'DST' : 'K';
+      const pool = avail.filter(p => p.pos === want).sort((a,b) => board(a) - board(b));
+      if (pool.length) return pool[0];
     }
-    return overall;
+
+    const cap = { QB:2, RB:7, WR:8, TE:1, K:1, DST:1 };   // one TE per team (real 1-TE-league norm)
+    const lateKD = round >= rounds - 2;                 // K/DST only worth taking in the last ~3 rounds
+    const persona = (this._cpuPersona && this._cpuPersona[team]) || 0;   // reach(+) vs patience(-)
+
+    // recent positional run (last ~2 rounds of picks)
+    const run = { QB:0, RB:0, WR:0, TE:0 };
+    (recent || []).slice(0, 2 * this.TEAMS).forEach(r => { if (run[r.pos] != null) run[r.pos]++; });
+
+    const flexRoom = (Math.max(0, c.RB - 2) + Math.max(0, c.WR - 2) + Math.max(0, c.TE - 1)) < this.numFlex;
+    const need = (p) => {
+      const pos = p.pos;
+      if (pos === 'QB') return c.QB < this.numQB ? (round >= 3 ? 10 : 2) : (c.QB < 2 && round >= 10 ? 0 : -60);   // 2nd QB rare/late
+      if (pos === 'RB') return c.RB < 2 ? 14 : (c.RB < 4 ? 6 : (flexRoom ? 4 : 1));    // build real RB depth
+      if (pos === 'WR') return c.WR < 2 ? 13 : (c.WR < 4 ? 5 : (flexRoom ? 4 : 1));    // build real WR depth
+      if (pos === 'TE') return c.TE < 1 ? 8 : (c.TE < 2 && round >= 11 ? -3 : -40);    // 2nd TE almost never
+      if (pos === 'K')  return (needsK && lateKD) ? 10 : -400;
+      if (pos === 'DST') return (needsDST && lateKD) ? 10 : -400;
+      return -50;
+    };
+
+    // Effective board slot: need + run + personality pull a player up or down the board.
+    const cand = avail.filter(p => (c[p.pos] || 0) < (cap[p.pos] || 99)).map(p => {
+      const runBonus = (run[p.pos] || 0) >= 3 ? 6 : 0;                  // follow a positional run
+      const noise = (Math.random() - 0.5) * 10 + persona * 4;          // personality + jitter
+      return { p, eff: board(p) - need(p) - runBonus - noise };
+    });
+    if (!cand.length) return avail.slice().sort((a,b) => board(a) - board(b))[0];
+    cand.sort((a,b) => a.eff - b.eff);
+
+    // take one of the top few (weighted) so no two sims play out identically
+    const window = cand.slice(0, 4);
+    const weights = [0.5, 0.27, 0.15, 0.08].slice(0, window.length);
+    const total = weights.reduce((x,y) => x + y, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < window.length; i++) { r -= weights[i]; if (r <= 0) return window[i].p; }
+    return window[0].p;
   }
 
-  initDraft(mode) {
-    const draftedBy = {}, recent = [];
-    let overall = 1;
-    if (mode === 'sim') overall = this.runSim(draftedBy, recent, 1);
-    return { draftedBy, recent, overall };
+  seedPersonas() {   // small stable per-team tendency so opponents don't all draft alike
+    this._cpuPersona = [];
+    for (let t = 0; t < this.TEAMS; t++) this._cpuPersona.push(Math.random() * 2 - 1);
+  }
+
+  // ===== paced CPU drafting: opponents pick one at a time with a human-like delay, so a sim
+  // feels like a real draft room (picks tick into the feed; you're never rushed on your turn). =====
+  clearCpu() { if (this._cpuTimer) { clearTimeout(this._cpuTimer); this._cpuTimer = null; } }
+
+  scheduleCpu() {
+    this.clearCpu();
+    const s = this.state;
+    if (!s || s.stage !== 'draft' || s.mode !== 'sim') return;
+    if (s.overall > this.TEAMS * this.ROSTER_MAX) return;      // draft complete
+    if (this.teamOnClock(s.overall) === this.myTeam) return;   // your turn -> stop and let you think
+    const delay = this.CPU_DELAY_MS * (0.75 + Math.random() * 0.6);   // ~1.5-2.7s, human-ish
+    this._cpuTimer = setTimeout(() => this.cpuTick(), delay);
+  }
+
+  cpuTick() {
+    this._cpuTimer = null;
+    const prev = this.state;
+    if (!prev || prev.stage !== 'draft' || prev.mode !== 'sim') return;
+    const maxPick = this.TEAMS * this.ROSTER_MAX;
+    const ov = prev.overall;
+    if (ov > maxPick) return;
+    const t = this.teamOnClock(ov);
+    if (t === this.myTeam) return;                             // your turn -> stop
+    const pick = this.cpuPick(prev.draftedBy, t, ov, prev.recent);
+    if (!pick) return;
+    const draftedBy = Object.assign({}, prev.draftedBy);
+    draftedBy[pick.id] = { team: t, pick: ov };
+    const recent = prev.recent.slice();
+    recent.unshift({ label: this.pickLabel(ov), overall: ov, team: t, id: pick.id, name: pick.name, pos: pick.pos });
+    const next = ov + 1;
+    this.setState({ draftedBy, recent, overall: next });
+    // chain to the next CPU pick off the NEW pick number (this.state may lag a tick)
+    if (next <= maxPick && this.teamOnClock(next) !== this.myTeam) {
+      const delay = this.CPU_DELAY_MS * (0.75 + Math.random() * 0.6);
+      this._cpuTimer = setTimeout(() => this.cpuTick(), delay);
+    }
+  }
+
+  componentWillUnmount() { this.clearCpu(); if (this._poll) clearInterval(this._poll); }
+
+  initDraft(mode) {   // start empty at pick 1; CPU picks tick in via scheduleCpu (async, paced)
+    return { draftedBy: {}, recent: [], overall: 1 };
   }
 
   rosterFull() {
@@ -926,16 +994,20 @@ class Component extends DCLogic {
     this.ROSTER_MAX = this.rosterMax(this.numQB, this.numFlex, this.numBench);
     this.saveConfig({ setupMode: mode, scoring: this.scoring, teamsInput: teams, pickInput: slot, numQB: this.numQB, numFlex: this.numFlex, numBench: this.numBench });
     this.players = this.buildPlayers(this.scoring, teams);
+    if (mode === 'sim') this.seedPersonas();
     const init = this.initDraft(mode);
     this.setState({ stage: 'draft', mode, teamsInput: teams, pickInput: slot,
       draftedBy: init.draftedBy, recent: init.recent, overall: init.overall, filter: 'ALL', search: '', clock: 90 });
+    if (mode === 'sim') setTimeout(() => this.scheduleCpu(), 50);
   }
-  goToSetup() { this.setState({ stage: 'setup' }); }
+  goToSetup() { this.clearCpu(); this.setState({ stage: 'setup' }); }
 
   // ===== draft handlers =====
   draftMine(id) {
+    this.clearCpu();
     this.setState(prev => {
       if (prev.draftedBy[id]) return null;
+      if (this.teamOnClock(prev.overall) !== this.myTeam) return null;   // only draft on your own turn
       const p = this.players.find(x => x.id === id);
       if (!p) return null;
       const draftedBy = Object.assign({}, prev.draftedBy);
@@ -944,9 +1016,9 @@ class Component extends DCLogic {
       draftedBy[id] = { team: this.myTeam, pick: overall };
       recent.unshift({ label: this.pickLabel(overall), overall, team: this.myTeam, id: p.id, name: p.name, pos: p.pos });
       overall++;
-      if (prev.mode === 'sim') overall = this.runSim(draftedBy, recent, overall);
       return { draftedBy, recent, overall, clock: 90 };
     });
+    if (this.state && this.state.mode === 'sim') setTimeout(() => this.scheduleCpu(), 50);
   }
   markGone(id) {
     this.setState(prev => {
@@ -1002,12 +1074,19 @@ class Component extends DCLogic {
   }
 
   setMode(m) {
+    this.clearCpu();
+    if (m === 'sim') this.seedPersonas();
     const init = this.initDraft(m);
     this.setState({ mode: m, draftedBy: init.draftedBy, recent: init.recent, overall: init.overall, filter: 'ALL', search: '', clock: 90 });
+    if (m === 'sim') setTimeout(() => this.scheduleCpu(), 50);
   }
   reset() {
-    const init = this.initDraft(this.state.mode);
+    this.clearCpu();
+    const m = this.state.mode;
+    if (m === 'sim') this.seedPersonas();
+    const init = this.initDraft(m);
     this.setState({ draftedBy: init.draftedBy, recent: init.recent, overall: init.overall, filter: 'ALL', search: '', clock: 90 });
+    if (m === 'sim') setTimeout(() => this.scheduleCpu(), 50);
   }
 
   buildRoster(myPlayers) {
@@ -1133,6 +1212,10 @@ class Component extends DCLogic {
     const picksLeft = this.ROSTER_MAX - myPlayers.length;
     const flexOpen = !flexFilled;
 
+    // House rule: don't RECOMMEND a QB before round QB_MIN_ROUND (you can still draft one by hand).
+    const myDecisionPick = myTurn ? overall : nextMy;
+    const qbLocked = Math.ceil((myDecisionPick || overall) / this.TEAMS) < this.QB_MIN_ROUND;
+
     // ================= RECOMMENDATION ENGINE (roster-aware + 2-pick look-ahead) =================
     // How much of a player's VORP actually lands on YOUR starting lineup given your roster so far
     // (a 3rd RB only rides the FLEX, a 2nd QB barely helps, etc.).
@@ -1190,7 +1273,8 @@ class Component extends DCLogic {
       return v;
     };
 
-    const ranked = avail.slice().sort((a,b) => score(b) - score(a));
+    const recPool = qbLocked ? avail.filter(p => p.pos !== 'QB') : avail;
+    const ranked = recPool.slice().sort((a,b) => score(b) - score(a));
     const top = ranked.length ? ranked[0] : null;
     const recPlayer = (myTurn && top) ? top : null;
     const previewPlayer = (!myTurn && !done && top) ? top : null;
@@ -1206,15 +1290,15 @@ class Component extends DCLogic {
       addArch(ranked.slice(1).find(Boolean), 'VALUE', 'next-best fit for your roster');
       // pivot to the scarcest OTHER position (the "secure the scarce position instead" option)
       const recPos = recPlayer ? recPlayer.pos : null;
-      const scarce = ['RB','WR','TE','QB'].filter(pos => pos !== recPos && bestNowAt[pos] && slotFactor(pos) >= 0.6)
+      const scarce = ['RB','WR','TE','QB'].filter(pos => pos !== recPos && bestNowAt[pos] && slotFactor(pos) >= 0.6 && (!qbLocked || pos !== 'QB'))
                        .sort((a,b) => cliff[b] - cliff[a])[0];
       if (scarce && cliff[scarce] >= 8) addArch(bestNowAt[scarce], scarce + ' SCARCITY', 'top ' + scarce + ' left — the drop after him is ~' + cliff[scarce] + ' VORP by your next pick');
       // pure best-player-available, ignoring your build
-      const naiveBest = avail.slice().sort((a,b) => b.vorp - a.vorp)[0];
+      const naiveBest = recPool.slice().sort((a,b) => b.vorp - a.vorp)[0];
       if (naiveBest) addArch(naiveBest, 'BEST AVAILABLE', 'highest raw value (+' + naiveBest.vorp + ' VORP) — ignores your build');
       // a REAL ESPN steal: undervalued AND actually draftable near now (not a round-8 flier)
       const reachWindow = overall + Math.max(12, this.TEAMS);
-      const steal = avail.filter(p => realEdge(p) >= 12 && slotFactor(p.pos) >= 0.6 && p.consAdp <= reachWindow)
+      const steal = recPool.filter(p => realEdge(p) >= 12 && slotFactor(p.pos) >= 0.6 && p.consAdp <= reachWindow)
                          .sort((a,b) => (b.vorp + b.edge) - (a.vorp + a.edge))[0];
       if (steal) addArch(steal, 'ESPN STEAL', 'a value your ESPN league will let slide (~' + realEdge(steal) + ' spots late on ESPN)');
       // backfill to ~3 options with the next-best by roster-aware score (never a deep sleeper)
@@ -1303,7 +1387,7 @@ class Component extends DCLogic {
     const boardSrc = avail
       .filter(p => filt === 'ALL' ? true : p.pos === filt)
       .filter(p => q === '' ? true : p.name.toLowerCase().indexOf(q) !== -1);
-    const rowAction = (id) => { if (isLive && !myTurn) this.markGone(id); else this.draftMine(id); };
+    const rowAction = (id) => { if (myTurn) this.draftMine(id); else if (isLive) this.markGone(id); };
     const board = boardSrc.slice(0, 60).map((p, i) => {
       const bi = this.injInfo(p.inj);
       return {
@@ -1454,6 +1538,7 @@ class Component extends DCLogic {
 
     // positional strategy strip: how much value each position loses (cliff) before your next pick
     const posStrategy = ['RB','WR','TE','QB'].map(pos => {
+      if (pos === 'QB' && qbLocked) return { pos, color: '#7e838d', detail: 'R' + this.QB_MIN_ROUND + '+' };
       const u = cliff[pos] || 0;
       return { pos, color: u >= 12 ? '#f0726a' : u >= 6 ? '#f5b14c' : '#7e838d', detail: u >= 6 ? '▼' + u : 'flat' };
     });
