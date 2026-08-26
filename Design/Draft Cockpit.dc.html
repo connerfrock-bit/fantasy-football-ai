@@ -1133,8 +1133,9 @@ class Component extends DCLogic {
     const picksLeft = this.ROSTER_MAX - myPlayers.length;
     const flexOpen = !flexFilled;
 
-    // ROSTER-AWARE MARGINAL VALUE: how much of a player's VORP actually lands on YOUR
-    // starting lineup given what you've drafted (a 3rd RB only rides the FLEX, etc.).
+    // ================= RECOMMENDATION ENGINE (roster-aware + 2-pick look-ahead) =================
+    // How much of a player's VORP actually lands on YOUR starting lineup given your roster so far
+    // (a 3rd RB only rides the FLEX, a 2nd QB barely helps, etc.).
     const slotFactor = (pos) => {
       if (pos === 'QB') return counts.QB < this.numQB ? 1.0 : 0.2;
       if (pos === 'RB') return counts.RB < 2 ? 1.0 : (flexOpen ? 0.6 : 0.25);
@@ -1145,26 +1146,47 @@ class Component extends DCLogic {
       return 0.2;
     };
     const marginalValue = (p) => p.vorp * slotFactor(p.pos);
-    // expected number at this position gone before your next pick (sum of taken-probabilities)
-    const likelyGone = (pos) => Math.round(avail.filter(p => p.pos === pos).reduce((n, p) => n + (1 - this.survivalProb(p.consAdp, nextMy, p.sources)), 0));
-    const inTier = (p) => avail.filter(q => q.pos === p.pos && q.tier === p.tier).length;
 
-    // OPPORTUNITY COST: VORP you'd lose by waiting. Count how many at the position go
-    // before your next pick; the one you'd get is that many spots down the board by VORP.
-    const urgency = {};
+    // Guardrailed ESPN edge: ESPN's ADP list floors ~160, which fabricates huge edges for deep
+    // players (that's what made a round-8 sleeper look like a "steal" at pick 3). Only trust the
+    // edge for genuinely ranked, draftable players.
+    const realEdge = (p) => (p.espnAdp != null && p.espnAdp < 160 && p.consAdp != null && p.consAdp <= 180) ? p.edge : 0;
+
+    const tierCounts = {};
+    avail.forEach(p => { const k = p.pos + '|' + p.tier; tierCounts[k] = (tierCounts[k] || 0) + 1; });
+    const inTier = (p) => tierCounts[p.pos + '|' + p.tier] || 0;
+
+    // CHESS — your next two picks, and who realistically survives to each. expBestAt walks the
+    // vorp-sorted board down by the number expected to be gone by that pick (survival model).
+    const nextMy2 = this.nextMyPick(nextMy + 1);
+    const expBestAt = (pos, atPick) => {
+      const grp = avail.filter(p => p.pos === pos && slotFactor(p.pos) > 0).sort((a,b) => b.vorp - a.vorp);
+      if (!grp.length) return { mv: 0, player: null };
+      const gone = Math.round(grp.reduce((n, p) => n + (1 - this.survivalProb(p.consAdp, atPick, p.sources)), 0));
+      const g = grp[Math.min(Math.max(0, gone), grp.length - 1)];
+      return { mv: marginalValue(g), player: g };
+    };
+
+    // Per-position CLIFF: value of the best available NOW minus what you'd realistically still get
+    // if you wait. A big cliff = scarce/urgent (this is the RB-scarcity signal); small = deep.
+    const bestNowAt = {}, cliff = {}, cliff2 = {}, replNext = {};
     ['QB','RB','WR','TE','K','DST'].forEach(pos => {
       const grp = avail.filter(p => p.pos === pos).sort((a,b) => b.vorp - a.vorp);
-      if (!grp.length) { urgency[pos] = 0; return; }
-      urgency[pos] = Math.max(0, Math.round(grp[0].vorp - grp[Math.min(likelyGone(pos), grp.length - 1)].vorp));
+      bestNowAt[pos] = grp[0] || null;
+      const now = grp.length ? marginalValue(grp[0]) : 0;
+      replNext[pos] = expBestAt(pos, nextMy);
+      cliff[pos]  = Math.max(0, Math.round(now - replNext[pos].mv));
+      cliff2[pos] = Math.max(0, Math.round(now - expBestAt(pos, nextMy2).mv));
     });
+    const dropIfWait = (p) => Math.max(0, marginalValue(p) - (replNext[p.pos] ? replNext[p.pos].mv : 0));
 
-    // PICK SCORE = marginal value to your lineup + cost of waiting, with small nudges.
+    // PICK SCORE = value to your lineup now + how much worse your fallback is if you wait.
     const score = (p) => {
-      let v = marginalValue(p) + 0.5 * (urgency[p.pos] || 0);
-      if (inTier(p) === 1) v += 8;        // last man in his tier
-      if (p.edge >= 6) v += 4;            // ESPN undervalues him (tie-breaker toward value)
+      let v = marginalValue(p) + 0.6 * dropIfWait(p);
+      if (inTier(p) === 1) v += 8;                 // last man in his tier -> real cliff after him
+      if (realEdge(p) >= 8) v += 4;                // ESPN undervalues him (tie-breaker toward value)
       const bc = byeClash(p);
-      if (bc >= 2) v -= Math.min(12, 3 * bc);   // 2+ of my skill players already off on his bye
+      if (bc >= 2) v -= Math.min(12, 3 * bc);      // 2+ of my skill players already on his bye
       return v;
     };
 
@@ -1173,18 +1195,30 @@ class Component extends DCLogic {
     const recPlayer = (myTurn && top) ? top : null;
     const previewPlayer = (!myTurn && !done && top) ? top : null;
 
-    // OTHER ANGLES: distinct archetypes (value / best-available / ESPN steal), not just next scores.
+    // OTHER ANGLES — genuinely distinct, always-sensible alternatives (never a deep sleeper).
     const archetypes = [];
     const addArch = (p, kind, note) => {
       const rn = recPlayer ? recPlayer.name : null;
-      if (p && p.name !== rn && !archetypes.some(a => a.player.name === p.name)) archetypes.push({ player: p, kind, note });
+      if (p && p.name !== rn && slotFactor(p.pos) > 0 && !archetypes.some(a => a.player.name === p.name)) archetypes.push({ player: p, kind, note });
     };
     if (myTurn) {
+      // next-best by the same roster-aware score
       addArch(ranked.slice(1).find(Boolean), 'VALUE', 'next-best fit for your roster');
+      // pivot to the scarcest OTHER position (the "secure the scarce position instead" option)
+      const recPos = recPlayer ? recPlayer.pos : null;
+      const scarce = ['RB','WR','TE','QB'].filter(pos => pos !== recPos && bestNowAt[pos] && slotFactor(pos) >= 0.6)
+                       .sort((a,b) => cliff[b] - cliff[a])[0];
+      if (scarce && cliff[scarce] >= 8) addArch(bestNowAt[scarce], scarce + ' SCARCITY', 'top ' + scarce + ' left — the drop after him is ~' + cliff[scarce] + ' VORP by your next pick');
+      // pure best-player-available, ignoring your build
       const naiveBest = avail.slice().sort((a,b) => b.vorp - a.vorp)[0];
       if (naiveBest) addArch(naiveBest, 'BEST AVAILABLE', 'highest raw value (+' + naiveBest.vorp + ' VORP) — ignores your build');
-      const steal = avail.filter(p => p.edge >= 10).sort((a,b) => b.edge - a.edge)[0];
-      if (steal) addArch(steal, 'ESPN STEAL', 'sharp market ~' + Math.round(steal.edge) + ' picks ahead of ESPN — let him fall, grab early');
+      // a REAL ESPN steal: undervalued AND actually draftable near now (not a round-8 flier)
+      const reachWindow = overall + Math.max(12, this.TEAMS);
+      const steal = avail.filter(p => realEdge(p) >= 12 && slotFactor(p.pos) >= 0.6 && p.consAdp <= reachWindow)
+                         .sort((a,b) => (b.vorp + b.edge) - (a.vorp + a.edge))[0];
+      if (steal) addArch(steal, 'ESPN STEAL', 'a value your ESPN league will let slide (~' + realEdge(steal) + ' spots late on ESPN)');
+      // backfill to ~3 options with the next-best by roster-aware score (never a deep sleeper)
+      ranked.slice(1).forEach(p => { if (archetypes.length < 3 && slotFactor(p.pos) > 0) addArch(p, 'ALSO CONSIDER', '+' + p.vorp + ' VORP at ' + p.pos + ' — solid fallback'); });
     }
     const altPlayers = archetypes.slice(0, 3);
 
@@ -1198,31 +1232,36 @@ class Component extends DCLogic {
       return 'adds depth';
     };
 
+    const rosterLine = counts.RB + ' RB / ' + counts.WR + ' WR / ' + counts.TE + ' TE / ' + counts.QB + ' QB';
     const buildReasons = (p) => {
       const out = [];
       const sf = slotFactor(p.pos), mv = Math.round(marginalValue(p));
-      // ROSTER FIT — the marginal-value story (does his value actually land on YOUR lineup?)
+      // ROSTER FIT — does his value actually land on YOUR lineup, given your roster so far?
       let fit;
-      if (sf >= 1.0) fit = 'Fills an open starting slot (' + needPhrase(p.pos) + '), so his full +' + p.vorp + ' value lands on your starters.';
-      else if (sf >= 0.6) fit = 'You’re set at ' + p.pos + ' starters — he’d only ride your FLEX, so he’s worth ~' + mv + ' to your lineup vs his +' + p.vorp + ' raw. A starting-slot fill usually beats this.';
-      else fit = 'Bench depth at ' + p.pos + ' — worth ~' + mv + ' to your lineup. Only here if he’s a clear value.';
+      if (sf >= 1.0) fit = 'Fills an open starting slot (' + needPhrase(p.pos) + '). You have ' + rosterLine + ', so his full +' + p.vorp + ' lands on your starters.';
+      else if (sf >= 0.6) fit = 'You have ' + rosterLine + ' — your ' + p.pos + ' starters are set, so he’d only ride your FLEX (~' + mv + ' to your lineup vs +' + p.vorp + ' raw).';
+      else fit = 'You have ' + rosterLine + ' — bench depth at ' + p.pos + ' (~' + mv + ' to your lineup). Only worth it as clear value.';
       out.push({ tag: 'ROSTER FIT', text: fit, dot: '#5aa9f0', pri: 1 });
-      // DON'T WAIT — opportunity cost vs your next pick
-      const u = urgency[p.pos] || 0;
-      if (u >= 8) out.push({ tag: 'DON’T WAIT', text: p.pos + ' thins out before your next pick (' + nextLabel + ') — you’d lose ~' + u + ' VORP of value waiting. Lock it in now.', dot: '#f5b14c', pri: 2 });
-      else out.push({ tag: 'NO RUSH', text: p.pos + ' holds up to your next pick (' + nextLabel + ') — comparable value should still be there. Lean to a thinning position if one is close.', dot: '#c98bf0', pri: 4 });
-      // MARKET — ESPN arbitrage (your league drafts off ESPN's board)
-      if (p.edge >= 8) out.push({ tag: 'ESPN STEAL', text: 'The sharp market ranks him ~' + Math.round(p.edge) + ' picks ahead of ESPN’s board. Your league drafts off ESPN, so he’ll slide — you can wait or grab a value now.', dot: '#3ddc91', pri: 3 });
-      else if (p.edge <= -8) out.push({ tag: 'GOES EARLY', text: 'ESPN ranks him ~' + Math.round(-p.edge) + ' picks ahead of the sharp market — your league-mates will overdraft him. Don’t reach.', dot: '#f0726a', pri: 5 });
-      else out.push({ tag: 'MARKET', text: 'ESPN has him near the sharp consensus (ADP ' + p.consAdp + ') — fair value, no slide to game.', dot: '#9aa0a9', pri: 5 });
+      // LOOK AHEAD — the cliff at his position across your next two picks
+      const c1 = cliff[p.pos] || 0, c2 = cliff2[p.pos] || 0, repl = replNext[p.pos] ? replNext[p.pos].player : null;
+      if (c1 >= 8) out.push({ tag: 'DON’T WAIT', text: p.pos + ' cliffs before your next pick (' + nextLabel + '): the ' + p.pos + ' you’d get there is ~' + c1 + ' VORP lower' + (repl ? ' (likely ' + repl.name + ')' : '') + '. Take the tier now.', dot: '#f5b14c', pri: 2 });
+      else if (c2 >= 10) out.push({ tag: 'THINNING', text: p.pos + ' survives to ' + nextLabel + ' but not to your pick after (' + this.pickLabel(nextMy2) + ') — ~' + c2 + ' VORP lower by then. Safe to wait one turn, not two.', dot: '#c98bf0', pri: 3 });
+      else out.push({ tag: 'NO RUSH', text: p.pos + ' is deep — comparable value should reach ' + nextLabel + '. If a scarcer position is close, take that first.', dot: '#c98bf0', pri: 4 });
+      // TIER CLIFF
       if (inTier(p) === 1) out.push({ tag: 'TIER CLIFF', text: 'Last ' + p.pos + ' in Tier ' + p.tier + ' — a real drop in projected output after him.', dot: '#f5b14c', pri: 2.5 });
+      // MARKET — guardrailed ESPN arbitrage (your league drafts off ESPN's board)
+      const re = realEdge(p);
+      if (re >= 8) out.push({ tag: 'ESPN VALUE', text: 'Sharp market ranks him ~' + re + ' spots ahead of ESPN’s board — in an ESPN league he tends to slide, so he’s good value here.', dot: '#3ddc91', pri: 3.5 });
+      else if (re <= -8) out.push({ tag: 'ESPN REACH', text: 'ESPN ranks him ~' + (-re) + ' spots ahead of the sharp market — league-mates may overdraft him, but don’t reach past better value.', dot: '#f0726a', pri: 5 });
+      // BYE STACK
       const bc = byeClash(p);
-      if (bc >= 2 && p.bye != null) out.push({ tag: 'BYE STACK', text: bc + ' of your players already sit Week ' + p.bye + ' — drafting him puts ' + (bc + 1) + ' on the same bye. Fine as depth, painful if he starts.', dot: '#f5b14c', pri: 3.5 });
+      if (bc >= 2 && p.bye != null) out.push({ tag: 'BYE STACK', text: bc + ' of your players already sit Week ' + p.bye + ' — this puts ' + (bc + 1) + ' on that bye.', dot: '#f5b14c', pri: 4.5 });
+      // VALUE fallback
       out.push({ tag: 'VALUE', text: '+' + p.vorp + ' VORP — ' + (p.vorp >= 100 ? 'foundational' : p.vorp >= 50 ? 'strong starter' : 'solid') + ' at ' + p.pos + '.', dot: '#3ddc91', pri: 6 });
       return out.sort((a,b) => a.pri - b.pri).slice(0, 4);
     };
 
-    const quickWhy = (p) => '+' + p.vorp + ' VORP · ' + needPhrase(p.pos) + (p.edge >= 8 ? ' · ESPN steal +' + Math.round(p.edge) : '');
+    const quickWhy = (p) => '+' + p.vorp + ' VORP · ' + needPhrase(p.pos) + (realEdge(p) >= 8 ? ' · ESPN value +' + realEdge(p) : '');
 
     const recInj = recPlayer ? this.injInfo(recPlayer.inj) : null;
     const rec = recPlayer ? {
@@ -1270,8 +1309,8 @@ class Component extends DCLogic {
       return {
       rank: i + 1, name: p.name, pos: p.pos, team: p.team, proj: p.proj, consAdp: p.consAdp,
       tier: p.tier, vorp: p.vorp, posColor: this.posColor(p.pos),
-      isRec: p.id === recId, edgeShow: p.edge >= 4,
-      edgeLabel: '↑' + p.edge + ' ESPN', edgeColor: '#3ddc91', edgeBg: 'rgba(61,220,145,.12)',
+      isRec: p.id === recId, edgeShow: realEdge(p) >= 6,
+      edgeLabel: '↑' + realEdge(p) + ' ESPN', edgeColor: '#3ddc91', edgeBg: 'rgba(61,220,145,.12)',
       injShow: !!bi, injLabel: bi ? bi.label : '', injColor: bi ? bi.color : '', injBg: bi ? bi.bg : '',
       rowBg: p.id === recId ? 'rgba(61,220,145,.07)' : 'transparent',
       onPick: () => rowAction(p.id)
@@ -1413,9 +1452,9 @@ class Component extends DCLogic {
       ? ds.meta.adp_sources.map(s => srcPretty[s] || (s.charAt(0).toUpperCase() + s.slice(1))).join(' · ')
       : 'ESPN · Sleeper · Yahoo';
 
-    // positional strategy strip: which positions cliff before your next pick (urgency = VORP at risk)
+    // positional strategy strip: how much value each position loses (cliff) before your next pick
     const posStrategy = ['RB','WR','TE','QB'].map(pos => {
-      const u = urgency[pos] || 0;
+      const u = cliff[pos] || 0;
       return { pos, color: u >= 12 ? '#f0726a' : u >= 6 ? '#f5b14c' : '#7e838d', detail: u >= 6 ? '▼' + u : 'flat' };
     });
 
