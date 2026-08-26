@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantasy Football Draft Tool</title>
+<style>
+  :root{
+    --bg:#0f1216; --card:#171b21; --card-hover:#1e232b; --text:#e8edf2;
+    --muted:#9aa7b3; --line:#262d36; --accent:#3fb950; --accent-dim:#2ea043;
+  }
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f5f7fa;--card:#ffffff;--card-hover:#f0f3f7;--text:#1a2028;
+      --muted:#5b6b7a;--line:#e2e8f0;--accent:#2ea043;--accent-dim:#2ea043;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:48px 20px}
+  .wrap{width:100%;max-width:720px}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--muted);margin:0}
+  .fresh{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);
+    background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 13px;margin:16px 0 28px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+  .cards{display:grid;gap:14px}
+  a.card{position:relative;display:block;text-decoration:none;color:inherit;background:var(--card);
+    border:1px solid var(--line);border-radius:14px;padding:20px 22px;transition:.15s ease}
+  a.card:hover{background:var(--card-hover);border-color:var(--accent-dim);transform:translateY(-1px)}
+  .card h2{margin:0 0 4px;font-size:18px}
+  .card p{margin:0;color:var(--muted);font-size:14px;padding-right:28px}
+  .go{position:absolute;right:20px;top:22px;color:var(--accent);font-size:20px;line-height:1}
+  footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center;line-height:1.8}
+  code{background:var(--card);padding:2px 7px;border-radius:6px;border:1px solid var(--line);font-size:12px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🏈 Fantasy Football Draft Tool</h1>
+    <p class="sub">Multi-source consensus rankings, a live draft board, and a lineup optimizer.</p>
+    <div class="fresh"><span class="dot"></span><span id="fresh">Loading rankings…</span></div>
+    <div class="cards">
+      <a class="card" href="Design/Draft%20Cockpit.dc.html">
+        <span class="go">&rarr;</span>
+        <h2>Draft Cockpit</h2>
+        <p>Run your live or mock draft — real-time board, tiers, injury flags, and pick recommendations.</p>
+      </a>
+      <a class="card" href="Design/Player%20Database.dc.html">
+        <span class="go">&rarr;</span>
+        <h2>Player Database</h2>
+        <p>Browse and sort every player by consensus ADP, projections, and tier across scoring formats.</p>
+      </a>
+      <a class="card" href="Design/Lineup%20Optimizer.dc.html">
+        <span class="go">&rarr;</span>
+        <h2>Lineup Optimizer</h2>
+        <p>Set your best weekly starters from the roster you drafted in the Cockpit.</p>
+      </a>
+    </div>
+    <footer>
+      Rankings blend Sleeper, ESPN, MyFantasyLeague, FantasyCalc &amp; Fantasy&nbsp;Football&nbsp;Calculator.<br>
+      Refresh anytime with <code>python pipeline/build_players.py</code> — or let the daily 6&nbsp;AM task do it.
+    </footer>
+  </div>
+  <script src="pipeline/data/ff_players.js"></script>
+  <script>
+    (function(){
+      var el = document.getElementById('fresh');
+      try {
+        var d = window.FF_DRAFT_DATA;
+        if (d && d.meta && d.meta.generated) {
+          var when = new Date(d.meta.generated);
+          var players = d.players ? d.players.length : '?';
+          var sources = d.meta.adp_sources ? d.meta.adp_sources.length : '?';
+          el.textContent = 'Rankings updated ' + when.toLocaleString() +
+                           '  ·  ' + players + ' players  ·  ' + sources + ' sources';
+        } else {
+          el.textContent = 'Rankings data loaded.';
+        }
+      } catch (e) {
+        el.textContent = 'Start the local server (not file://) so rankings can load.';
+      }
+    })();
+  </script>
+</body>
+</html>
