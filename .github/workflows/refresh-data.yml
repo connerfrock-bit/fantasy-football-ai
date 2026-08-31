@@ -1,0 +1,44 @@
+name: Refresh rankings data
+
+# Rebuilds the consensus rankings from the free public sources and commits the
+# result, so the live GitHub Pages site stays fresh without a local machine.
+on:
+  schedule:
+    # ~06:00 America/Chicago (CDT). GitHub cron is UTC and can lag under load.
+    - cron: '0 11 * * *'
+  workflow_dispatch: {}   # lets you trigger a refresh on demand from the Actions tab
+
+permissions:
+  contents: write         # allow the job to commit + push the refreshed data
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Rebuild rankings (5 free sources, no API keys)
+        run: python pipeline/refresh.py
+
+      - name: Commit refreshed data if it changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pipeline/data/ff_players.json pipeline/data/ff_players.js pipeline/data/ff_players.csv
+          if git diff --staged --quiet; then
+            echo "No ranking changes today — nothing to commit."
+          else
+            git commit -m "Auto-refresh rankings data ($(date -u +%Y-%m-%d))"
+            git push
+            echo "Pushed refreshed rankings."
+          fi
