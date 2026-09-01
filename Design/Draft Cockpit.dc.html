@@ -1217,12 +1217,12 @@ class Component extends DCLogic {
     // How much of a player's VORP actually lands on YOUR starting lineup given your roster so far
     // (a 3rd RB only rides the FLEX, a 2nd QB barely helps, etc.).
     const slotFactor = (pos) => {
-      if (pos === 'QB') return counts.QB < this.numQB ? 1.0 : 0.2;
+      if (pos === 'QB') return counts.QB < this.numQB ? 1.0 : (counts.QB < this.numQB + 1 ? 0.08 : 0);   // one backup at most; never hoard QBs
       if (pos === 'RB') return counts.RB < 2 ? 1.0 : (flexOpen ? 0.6 : 0.25);
       if (pos === 'WR') return counts.WR < 2 ? 1.0 : (flexOpen ? 0.6 : 0.25);
       if (pos === 'TE') return counts.TE < 1 ? 1.0 : (counts.TE < 2 ? 0.12 : 0);   // one starter TE; a 2nd is low-value bench cover (never flex a TE over RB/WR)
-      if (pos === 'K')  return counts.K  >= 1 ? 0 : (picksLeft <= 2 ? 0.5 : 0.02);
-      if (pos === 'DST') return counts.DST >= 1 ? 0 : (picksLeft <= 3 ? 0.45 : 0.03);
+      if (pos === 'K')  return counts.K  >= 1 ? 0 : (picksLeft <= 2 ? 1.0 : picksLeft <= 4 ? 0.6 : 0.1);   // stays below bench depth until the last few rounds (also gated out of the pool early - see kdLocked)
+      if (pos === 'DST') return counts.DST >= 1 ? 0 : (picksLeft <= 3 ? 1.0 : picksLeft <= 5 ? 0.6 : 0.1);
       return 0.2;
     };
     const marginalValue = (p) => p.vorp * slotFactor(p.pos);
@@ -1263,14 +1263,26 @@ class Component extends DCLogic {
     // PICK SCORE = value to your lineup now + how much worse your fallback is if you wait.
     const score = (p) => {
       let v = marginalValue(p) + 0.6 * dropIfWait(p);
-      if (inTier(p) === 1) v += 8;                 // last man in his tier -> real cliff after him
+      if (inTier(p) === 1 && p.pos !== 'K' && p.pos !== 'DST') v += 8;   // last man in his tier -> real cliff (not for K/DST - their tiers aren't worth chasing)
       if (realEdge(p) >= 8) v += 4;                // ESPN undervalues him (tie-breaker toward value)
       const bc = byeClash(p);
       if (bc >= 2) v -= Math.min(12, 3 * bc);      // 2+ of my skill players already on his bye
       return v;
     };
 
-    const recPool = qbLocked ? avail.filter(p => p.pos !== 'QB') : avail;
+    // K/DST realism gate: a real draft doesn't take a kicker/defense the moment your starters are
+    // set. Keep them OUT of the suggestion until the run actually starts — someone in the league has
+    // drafted that position, the best one left is near its ADP, or you're nearly out of picks.
+    const kdStarted = { K:false, DST:false };
+    this.players.forEach(p => { if ((p.pos === 'K' || p.pos === 'DST') && drafted[p.id]) kdStarted[p.pos] = true; });
+    const kdNearAdp = (pos) => { const b = avail.find(p => p.pos === pos); return !!(b && b.consAdp != null && b.consAdp <= (myDecisionPick || overall)); };
+    const kdLocked = (pos) => (counts[pos] >= 1) || !(kdStarted[pos] || kdNearAdp(pos) || picksLeft <= (pos === 'DST' ? 3 : 2));
+    const recPool = avail.filter(p => {
+      if (slotFactor(p.pos) <= 0) return false;                                  // position already full for your roster (no 3rd QB/TE, 2nd K/DST, etc.)
+      if (qbLocked && p.pos === 'QB') return false;                              // house rule: no QB before round 3
+      if ((p.pos === 'K' || p.pos === 'DST') && kdLocked(p.pos)) return false;   // K/DST only once it's their time
+      return true;
+    });
     const ranked = recPool.slice().sort((a,b) => score(b) - score(a));
     const top = ranked.length ? ranked[0] : null;
     const recPlayer = (myTurn && top) ? top : null;
