@@ -134,8 +134,6 @@
       <button onClick="{{ onStart }}" style="width:100%; background:linear-gradient(135deg,#3ddc91,#22b873); border:none; color:#06130d; font-family:'Hanken Grotesk'; font-weight:800; font-size:15px; letter-spacing:.3px; padding:15px; border-radius:11px; cursor:pointer; margin-top:2px;" style-hover="filter:brightness(1.07);">{{ startLabel }}</button>
       <div style="display:flex; align-items:center; justify-content:center; gap:10px; padding-top:6px;">
         <span style="font-size:11px; color:#5a5f68;">Jump to</span>
-        <a href="Lineup%20Optimizer.dc.html" style="color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="color:#3ddc91;">Lineup Optimizer</a>
-        <span style="color:#3a3f49;">·</span>
         <a href="Player%20Database.dc.html" style="color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="color:#3ddc91;">Player Database</a>
       </div>
     </div>
@@ -155,7 +153,6 @@
         <span style="font-weight:700; font-size:14px; letter-spacing:.2px;">{{ leagueName }}</span>
         <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace; letter-spacing:.3px;">{{ fmt }}</span>
       </div>
-      <a href="Lineup%20Optimizer.dc.html" style="display:inline-flex; align-items:center; padding:8px 12px; border-radius:8px; border:1px solid #2a2e37; background:#1a1d23; color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none; margin-left:6px;" style-hover="background:#22262e; color:#e9eaec;">Lineup</a>
       <a href="Player%20Database.dc.html" style="display:inline-flex; align-items:center; padding:8px 12px; border-radius:8px; border:1px solid #2a2e37; background:#1a1d23; color:#9aa0a9; font-size:12px; font-weight:700; text-decoration:none;" style-hover="background:#22262e; color:#e9eaec;">Players</a>
       <button onClick="{{ onOpenLeague }}" style="display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border-radius:8px; border:1px solid #2a2e37; background:#1a1d23; color:#9aa0a9; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; cursor:pointer;" style-hover="background:#22262e; color:#e9eaec;"><span style="width:6px; height:6px; border-radius:50%; background:#5aa9f0;"></span>League board</button>
     </div>
@@ -358,7 +355,6 @@
         <div style="font-size:15px; color:#9aa0a9; max-width:420px; line-height:1.5;">{{ totalPicksMine }} players drafted · {{ starterPts }} projected starter points. Hit <b style="color:#e9eaec;">Reset</b> to run it again.</div>
         <div style="display:flex; gap:10px; margin-top:6px;">
           <button onClick="{{ onOpenReport }}" style="background:linear-gradient(135deg,#3ddc91,#22b873); border:none; color:#06130d; font-family:'Hanken Grotesk'; font-weight:800; font-size:14px; letter-spacing:.3px; padding:13px 24px; border-radius:11px; cursor:pointer;" style-hover="filter:brightness(1.07);">View Draft Report Card →</button>
-          <button onClick="{{ onSendToOptimizer }}" style="background:rgba(90,169,240,.14); border:1px solid rgba(90,169,240,.5); color:#cfe3fb; font-family:'Hanken Grotesk'; font-weight:700; font-size:14px; padding:13px 22px; border-radius:11px; cursor:pointer;" style-hover="background:rgba(90,169,240,.24);">Send roster to Lineup Optimizer →</button>
         </div>
       </div>
       </sc-if>
@@ -443,8 +439,7 @@
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:22px;">
         <div style="width:30px; height:30px; border-radius:7px; background:linear-gradient(135deg,#3ddc91,#1f8a5b); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:#06130d;">D</div>
         <span style="font-size:13px; font-weight:700; letter-spacing:.3px;">{{ leagueName }}</span>
-        <button onClick="{{ onSendToOptimizer }}" style="margin-left:auto; background:rgba(90,169,240,.14); border:1px solid rgba(90,169,240,.5); color:#cfe3fb; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; padding:9px 16px; border-radius:9px; cursor:pointer;" style-hover="background:rgba(90,169,240,.24);">Send roster to Lineup Optimizer →</button>
-        <button onClick="{{ onCloseReport }}" style="background:#1a1d23; border:1px solid #2a2e37; color:#aeb2ba; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; padding:9px 16px; border-radius:9px; cursor:pointer;" style-hover="background:#22262e; color:#e9eaec;">← Back to cockpit</button>
+        <button onClick="{{ onCloseReport }}" style="margin-left:auto; background:#1a1d23; border:1px solid #2a2e37; color:#aeb2ba; font-family:'Hanken Grotesk'; font-size:12px; font-weight:700; padding:9px 16px; border-radius:9px; cursor:pointer;" style-hover="background:#22262e; color:#e9eaec;">← Back to cockpit</button>
       </div>
 
       <!-- hero -->
@@ -525,11 +520,11 @@
       <div style="background:#14161b; border:1px solid #20242c; border-radius:14px; overflow:hidden;">
         <div style="padding:14px 18px; border-bottom:1px solid #20242c; display:flex; align-items:baseline; justify-content:space-between;">
           <span style="font-size:11px; font-weight:700; letter-spacing:1.4px; color:#9aa0a9;">LEAGUE DRAFT GRADES</span>
-          <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace;">ranked by projected starting lineup</span>
+          <span style="font-size:11px; color:#7e838d; font-family:'JetBrains Mono',monospace;">ranked by projected lineup · click a team to see their roster</span>
         </div>
         <div style="padding:8px;">
           <sc-for list="{{ report.grades }}" as="g" hint-placeholder-count="10">
-            <div style="display:flex; align-items:center; gap:14px; padding:11px 12px; border-radius:10px; margin-bottom:4px; background:{{ g.rowBg }}; border:1px solid {{ g.rowBorder }};">
+            <div onClick="{{ g.onClick }}" title="View roster" style="display:flex; align-items:center; gap:14px; padding:11px 12px; border-radius:10px; margin-bottom:4px; background:{{ g.rowBg }}; border:1px solid {{ g.rowBorder }}; cursor:pointer;" style-hover="background:#1c2027; border-color:#2f3540;">
               <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6b7079; flex:none; width:24px; text-align:right;">{{ g.rank }}</span>
               <div style="flex:none; width:150px; display:flex; align-items:center; gap:8px;">
                 <span style="font-size:14px; font-weight:700; color:{{ g.nameColor }};">{{ g.name }}</span>
@@ -548,7 +543,7 @@
 
   <!-- ===== LEAGUE / OPPONENTS MODAL ===== -->
   <sc-if value="{{ leagueOpen }}" hint-placeholder-val="{{ false }}">
-  <div onClick="{{ onCloseLeague }}" style="position:fixed; inset:0; z-index:50; background:rgba(6,8,11,.72); display:flex; align-items:center; justify-content:center; padding:30px;">
+  <div onClick="{{ onCloseLeague }}" style="position:fixed; inset:0; z-index:70; background:rgba(6,8,11,.72); display:flex; align-items:center; justify-content:center; padding:30px;">
     <div onClick="{{ stop }}" style="width:940px; max-width:100%; height:78vh; display:flex; flex-direction:column; background:#14161b; border:1px solid #262a33; border-radius:16px; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.6);">
       <div style="flex:none; padding:16px 22px; border-bottom:1px solid #20242c; display:flex; align-items:center; gap:12px;">
         <span style="font-size:12px; font-weight:700; letter-spacing:1.4px; color:#9aa0a9;">LEAGUE BOARD</span>
@@ -650,7 +645,7 @@ class Component extends DCLogic {
     this.numBench = 6;
     this.ROSTER_MAX = this.rosterMax(1, 1, 6);
     this.QB_MIN_ROUND = 3;        // house rule: don't recommend a QB before this round
-    this.CPU_DELAY_MS = 2000;     // pacing between opponent picks in a simulation (~2s, jittered)
+    this.CPU_DELAY_MS = 1000;     // pacing between opponent picks in a simulation (~1s, jittered)
     this.players = this.buildPlayers('ppr', 10);
     const init = this.initDraft('live');
     this.state = {
@@ -887,21 +882,23 @@ class Component extends DCLogic {
     (recent || []).slice(0, 2 * this.TEAMS).forEach(r => { if (run[r.pos] != null) run[r.pos]++; });
 
     const flexRoom = (Math.max(0, c.RB - 2) + Math.max(0, c.WR - 2) + Math.max(0, c.TE - 1)) < this.numFlex;
+    // Gentle need nudges only: ESPN ADP is the dominant driver (they draft off ESPN's board), so
+    // these are small enough that a CPU rarely reaches more than a few spots up ESPN's board.
     const need = (p) => {
       const pos = p.pos;
-      if (pos === 'QB') return c.QB < this.numQB ? (round >= 3 ? 10 : 2) : (c.QB < 2 && round >= 10 ? 0 : -60);   // 2nd QB rare/late
-      if (pos === 'RB') return c.RB < 2 ? 14 : (c.RB < 4 ? 6 : (flexRoom ? 4 : 1));    // build real RB depth
-      if (pos === 'WR') return c.WR < 2 ? 13 : (c.WR < 4 ? 5 : (flexRoom ? 4 : 1));    // build real WR depth
-      if (pos === 'TE') return c.TE < 1 ? 8 : (c.TE < 2 && round >= 11 ? -3 : -40);    // 2nd TE almost never
-      if (pos === 'K')  return (needsK && lateKD) ? 10 : -400;
-      if (pos === 'DST') return (needsDST && lateKD) ? 10 : -400;
+      if (pos === 'QB') return c.QB < this.numQB ? (round >= 3 ? 3 : -2) : (c.QB < 2 && round >= 10 ? -2 : -50);
+      if (pos === 'RB') return c.RB < 2 ? 5 : (c.RB < 5 ? 2 : (flexRoom ? 1 : -6));
+      if (pos === 'WR') return c.WR < 2 ? 5 : (c.WR < 5 ? 2 : (flexRoom ? 1 : -6));
+      if (pos === 'TE') return c.TE < 1 ? 3 : -25;    // fill one TE, then essentially never a 2nd
+      if (pos === 'K')  return (needsK && lateKD) ? 12 : -400;
+      if (pos === 'DST') return (needsDST && lateKD) ? 12 : -400;
       return -50;
     };
 
     // Effective board slot: need + run + personality pull a player up or down the board.
     const cand = avail.filter(p => (c[p.pos] || 0) < (cap[p.pos] || 99)).map(p => {
-      const runBonus = (run[p.pos] || 0) >= 3 ? 6 : 0;                  // follow a positional run
-      const noise = (Math.random() - 0.5) * 10 + persona * 4;          // personality + jitter
+      const runBonus = (run[p.pos] || 0) >= 3 ? 4 : 0;                  // lightly follow a positional run
+      const noise = (Math.random() - 0.5) * 6 + persona * 2;           // small variability + personality
       return { p, eff: board(p) - need(p) - runBonus - noise };
     });
     if (!cand.length) return avail.slice().sort((a,b) => board(a) - board(b))[0];
@@ -1223,7 +1220,7 @@ class Component extends DCLogic {
       if (pos === 'QB') return counts.QB < this.numQB ? 1.0 : 0.2;
       if (pos === 'RB') return counts.RB < 2 ? 1.0 : (flexOpen ? 0.6 : 0.25);
       if (pos === 'WR') return counts.WR < 2 ? 1.0 : (flexOpen ? 0.6 : 0.25);
-      if (pos === 'TE') return counts.TE < 1 ? 1.0 : (flexOpen ? 0.6 : 0.25);
+      if (pos === 'TE') return counts.TE < 1 ? 1.0 : (counts.TE < 2 ? 0.12 : 0);   // one starter TE; a 2nd is low-value bench cover (never flex a TE over RB/WR)
       if (pos === 'K')  return counts.K  >= 1 ? 0 : (picksLeft <= 2 ? 0.5 : 0.02);
       if (pos === 'DST') return counts.DST >= 1 ? 0 : (picksLeft <= 3 ? 0.45 : 0.03);
       return 0.2;
@@ -1515,7 +1512,8 @@ class Component extends DCLogic {
       nameColor:a.idx===myTeam?'#3ddc91':'#e9eaec', note:'Best: '+teamBestPos(a),
       barWidth:Math.round(a.starterPts/maxPts*100)+'%',
       rowBg:a.idx===myTeam?'rgba(61,220,145,.06)':'transparent',
-      rowBorder:a.idx===myTeam?'rgba(61,220,145,.35)':'#191c22'
+      rowBorder:a.idx===myTeam?'rgba(61,220,145,.35)':'#191c22',
+      onClick:() => this.openTeam(a.idx)   // open this team's roster for a quick comparison
     }));
     const reportOpen = done && S.showReport;
     const report = {
